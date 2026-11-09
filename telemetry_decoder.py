@@ -30,6 +30,12 @@ documents them only as "Radio signal" with no units, so they are raw.
 The two "RX" values are RF-side packet counts: packets received and packets
 transmitted by the transceiver. The two "Ax" values are the AX.25 packet
 counts, received and transmitted.
+
+The remaining counter pairs, each <received>, <transmitted>, are Digi
+(digipeater), CSP (RF-side CSP), I2C1, I2C2, RS485 and MCU (CSP interface).
+The guide shows the payload ending "MCU,835,837" with no trailing comma.
+Real GRBAlpha frames end "MCU,<received>," with the transmitted value
+absent; it is then reported as None (JSON null), never as 0.
 Source: https://needronix.eu/products/cormorant/hamradio-user-guide/
 """
 
@@ -59,8 +65,9 @@ NTC_TABLE = (
     (82, 145), (73, 150),
 )
 
-# Fields up to and including the "Digi" label after the two "Ax" counters. None marks a numeric
-# value; a bytes value is a literal label that must match exactly.
+# Every field before the final MCU transmitted value, in payload order. None
+# marks a numeric value; a bytes value is a literal label that must match
+# exactly. The final value is handled separately in decode_comd.
 _COMD_PREFIX = (
     (b"COMd", "frame type"),
     (b"U", "uptime label"),
@@ -89,6 +96,22 @@ _COMD_PREFIX = (
     (None, "ax25_packets_received"),
     (None, "ax25_packets_transmitted"),
     (b"Digi", "digipeater counter label"),
+    (None, "digipeater_rx_count"),
+    (None, "digipeater_tx_count"),
+    (b"CSP", "CSP packet counter label"),
+    (None, "csp_received"),
+    (None, "csp_transmitted"),
+    (b"I2C1", "I2C1 packet counter label"),
+    (None, "i2c1_received"),
+    (None, "i2c1_transmitted"),
+    (b"I2C2", "I2C2 packet counter label"),
+    (None, "i2c2_received"),
+    (None, "i2c2_transmitted"),
+    (b"RS485", "RS485 packet counter label"),
+    (None, "rs485_received"),
+    (None, "rs485_transmitted"),
+    (b"MCU", "MCU packet counter label"),
+    (None, "csp_mcu_received"),
 )
 
 
@@ -101,9 +124,26 @@ SIG_FIELDS = (
     "sig_background_immediate", "sig_background_avg", "sig_background_max",
 )
 
+# Packet counters output as plain integers, in payload order. The final
+# csp_mcu_transmitted may be None and is output separately.
+COUNTER_FIELDS = (
+    "rf_packets_received", "rf_packets_transmitted",
+    "ax25_packets_received", "ax25_packets_transmitted",
+    "digipeater_rx_count", "digipeater_tx_count",
+    "csp_received", "csp_transmitted",
+    "i2c1_received", "i2c1_transmitted",
+    "i2c2_received", "i2c2_transmitted",
+    "rs485_received", "rs485_transmitted",
+    "csp_mcu_received",
+)
+
 
 def decode_comd(frame: bytes) -> dict:
-    """Return the numeric COMd fields up to the "Digi" label, keyed by name."""
+    """Return every numeric COMd field, keyed by name.
+
+    csp_mcu_transmitted is None when the frame ends right after
+    "MCU,<received>," (as every real GRBAlpha frame does).
+    """
     if len(frame) < len(AX25_HEADER):
         raise FrameError(
             f"frame is {len(frame)} bytes; need at least {len(AX25_HEADER)} "
@@ -133,6 +173,19 @@ def decode_comd(frame: bytes) -> dict:
             values[name] = int(token)
         elif token != expected:
             raise FrameError(f"expected {name} {expected!r}, got {token!r}")
+
+    # The final value has no terminating comma: the rest of the payload is
+    # either empty (value absent) or exactly one unsigned integer.
+    rest = payload[pos:]
+    if rest == b"":
+        values["csp_mcu_transmitted"] = None
+    elif _UINT.fullmatch(rest):
+        values["csp_mcu_transmitted"] = int(rest)
+    else:
+        raise FrameError(
+            "csp_mcu_transmitted must be absent or an unsigned integer ending "
+            f"the frame, got {rest!r}"
+        )
     return values
 
 
@@ -173,7 +226,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         description="Print mcu_10mv (and volts), batt (and mV), temp_cpu "
         "(K and degrees C), temp_pa_ntc (raw and degrees C), the six raw "
-        "Sig signal values and the RX and Ax packet counters from a raw "
+        "Sig signal values and all packet counters from a raw "
         "GRBAlpha AX.25 COMd frame as JSON."
     )
     parser.add_argument("frame_file", help="path to a raw binary frame (AX.25 without FCS)")
@@ -197,10 +250,8 @@ def main(argv=None) -> int:
         "temp_pa_ntc": values["temp_pa_ntc"],
         "temp_pa_c": ntc_to_celsius(values["temp_pa_ntc"]),
         **{name: values[name] for name in SIG_FIELDS},
-        "rf_packets_received": values["rf_packets_received"],
-        "rf_packets_transmitted": values["rf_packets_transmitted"],
-        "ax25_packets_received": values["ax25_packets_received"],
-        "ax25_packets_transmitted": values["ax25_packets_transmitted"],
+        **{name: values[name] for name in COUNTER_FIELDS},
+        "csp_mcu_transmitted": values["csp_mcu_transmitted"],
     }))
     return 0
 

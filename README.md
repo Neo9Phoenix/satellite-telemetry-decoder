@@ -68,6 +68,13 @@ This decoder uses the Python 3.9+ standard library only, with no extra dependenc
 - **Six raw radio signal values:** `sig_rx_immediate`, `sig_rx_avg`, `sig_rx_max`, `sig_background_immediate`, `sig_background_avg` and `sig_background_max`. They have no units.
 - **`rf_packets_received` and `rf_packets_transmitted`:** the two RX packet counters, as plain packet counts.
 - **`ax25_packets_received` and `ax25_packets_transmitted`:** the two Ax packet counters, as plain packet counts.
+- **The remaining counter pairs,** each a received and a transmitted count:
+  - `digipeater_rx_count` and `digipeater_tx_count`
+  - `csp_received` and `csp_transmitted`
+  - `i2c1_received` and `i2c1_transmitted`
+  - `i2c2_received` and `i2c2_transmitted`
+  - `rs485_received` and `rs485_transmitted`
+  - `csp_mcu_received` and `csp_mcu_transmitted`. The transmitted value can be `null`; see below.
 
 **Units, from the [Cormorant ham radio user guide](https://needronix.eu/products/cormorant/hamradio-user-guide/):**
 
@@ -103,31 +110,49 @@ The 57 real COMd frames compared on 2025-06-09 give 287–298 K (13.85–24.85 �
   - In the same frames, `rf_packets_transmitted` is exactly 13 less than AX.25 + CSP transmitted.
   - The offsets stay constant even as the counters change.
 
-  The CLI does not check this relationship. It also does not decode the `CSP` counters yet.
+  The CLI does not check this relationship.
 
 - **`Ax`:** the guide calls these "AX.25 packet counters", with values `<packets_received>, <packets_transmitted>`. The reference decoder names them `ax25_packets_received` and `ax25_packets_transmitted`. They are plain counts, so no conversion is needed.
 
   In all 59 real frames, `ax25_packets_received` equals the digipeater received count that follows the `Digi` label. That suggests every AX.25 packet the satellite received was digipeater traffic, but the guide does not say so. The CLI does not check this.
 
+- **`Digi`, `CSP`, `I2C1`, `I2C2`, `RS485` and `MCU`:** the guide gives each as `<packets_received>, <packets_transmitted>`, except `Digi`, which is `<digipeaterRxCount>, <digipeaterTxCount>`. It describes them as follows:
+  - `Digi`: "Digipeater counters"
+  - `CSP`: "RF side CSP packet counters"
+  - `I2C1`: "I2C1 packet counters"
+  - `I2C2`: "I2C2 packet counters"
+  - `RS485`: "RS485 packet counters"
+  - `MCU`: "CSP interface packet counters"
+
+  The field order and key names match the reference decoder. They are plain counts, so no conversion is needed.
+
+- **The final MCU value:** the guide's example beacon ends `MCU,835,837`, with no trailing comma. Every real frame checked ends differently. All 57 archive frames and both real fixtures end `,MCU,<received>,`, so the transmitted value is missing; the frame ends right after the received value's comma. The CLI handles the end of the frame like this:
+  - **Nothing after the comma:** `csp_mcu_transmitted` is `null`. This is every real frame. It is never reported as `0`.
+  - **Exactly one unsigned integer** (the guide's form): that number. Zeros stay `0`, so `MCU,0,0` gives `0` and `0`.
+  - **Anything else** (for example `837,`, `8x7`, `837,9`, or no comma after the received value): the frame is rejected with an error.
+
+  The reference decoder behaves the same way on all of these cases. It returns `null` when the value is missing, decodes the guide's form, and fails on the malformed endings, though with a raw `ValueError` or end-of-stream exception rather than a named error. This was checked by putting eight hand-made endings through both decoders.
+
 It follows the frame layout from the reference decoder's `comd` type, which cites the Needronix Cormorant ham radio user guide:
 
 - **Bytes 0–15:** a fixed AX.25 UI header, `86a240404040e09e9a728ea4846103f0`. That is CQ-0 ← OM9GRB-0, control `0x03`, PID `0xF0`, with no FCS.
-- **Bytes 16 onward:** an ASCII payload, `,COMd,U,<uptime_total>,<uptime_since_last>,R,<reset_count>,V,<mcu_10mv>,Ve,<batt>,T,<temp_cpu>,<temp_pa_ntc>,Sig,<six signal values>,RX,<rf_packets_received>,<rf_packets_transmitted>,Ax,<ax25_packets_received>,<ax25_packets_transmitted>,Digi,...`
+- **Bytes 16 onward:** an ASCII payload, `,COMd,U,<uptime_total>,<uptime_since_last>,R,<reset_count>,V,<mcu_10mv>,Ve,<batt>,T,<temp_cpu>,<temp_pa_ntc>,Sig,<six signal values>,RX,<rf_packets_received>,<rf_packets_transmitted>,Ax,<ax25_packets_received>,<ax25_packets_transmitted>,Digi,<rx>,<tx>,CSP,<rx>,<tx>,I2C1,<rx>,<tx>,I2C2,<rx>,<tx>,RS485,<rx>,<tx>,MCU,<rx>,[<tx>]`. The final `<tx>` is absent in real GRBAlpha frames.
 
 **What the CLI validates:**
 
 - **Exact header:** the first 16 bytes must equal the header above, byte for byte. Any other header is rejected, including a different SSID byte. For example, the other OM9GRB frames from the same pass end the source address with `0x7f` instead of `0x61`, so the CLI rejects them.
 - **Payload start:** the byte after the header must be `,`.
-- **Fields through `Digi`:** the next twenty-seven fields are checked in order, and each must end with `,`:
-  - `COMd`, `U`, `R`, `V`, `Ve`, `T`, `Sig`, `RX`, `Ax` and `Digi` must match exactly.
-  - `uptime_total`, `uptime_since_last`, `reset_count`, `mcu_10mv`, `batt`, `temp_cpu`, `temp_pa_ntc`, the six `sig_*` values, the two `rf_packets_*` counters and the two `ax25_packets_*` counters must be unsigned decimal integers (ASCII `0-9` only).
-- **Not checked:** anything after the `Digi,` label, which is the Digi, CSP, I2C, RS485 and MCU counters. It is neither parsed nor validated. There is also no FCS/CRC to check, because SatNOGS stores the frame without one.
+- **The whole payload:** forty-three fields (15 labels and 28 values) are checked in order, up to and including `csp_mcu_received`, and each must end with `,`:
+  - `COMd`, `U`, `R`, `V`, `Ve`, `T`, `Sig`, `RX`, `Ax`, `Digi`, `CSP`, `I2C1`, `I2C2`, `RS485` and `MCU` must match exactly.
+  - Every value must be an unsigned decimal integer (ASCII `0-9` only). That covers `uptime_total`, `uptime_since_last` and `reset_count`, which are validated but not printed.
+- **The end of the frame:** after `csp_mcu_received` the payload must either end or be exactly one unsigned integer (`csp_mcu_transmitted`). Nothing else is accepted.
+- **Not checked:** there is no FCS/CRC to check, because SatNOGS stores the frame without one.
 
 ### Run
 
 ```sh
 python3 telemetry_decoder.py fixtures/grbalpha_11737297_2025-06-09T18-53-26.bin
-# {"mcu_10mv": 333, "mcu_volts": 3.33, "batt": 2421, "batt_mv": 8161.9173, "temp_cpu_k": 303, "temp_cpu_c": 29.85, "temp_pa_ntc": 1854, "temp_pa_c": 29.39, "sig_rx_immediate": 1917, "sig_rx_avg": 1751, "sig_rx_max": 1751, "sig_background_immediate": 1003, "sig_background_avg": 998, "sig_background_max": 1022, "rf_packets_received": 63572, "rf_packets_transmitted": 8277857, "ax25_packets_received": 3211, "ax25_packets_transmitted": 3708250}
+# {"mcu_10mv": 333, "mcu_volts": 3.33, "batt": 2421, "batt_mv": 8161.9173, "temp_cpu_k": 303, "temp_cpu_c": 29.85, "temp_pa_ntc": 1854, "temp_pa_c": 29.39, "sig_rx_immediate": 1917, "sig_rx_avg": 1751, "sig_rx_max": 1751, "sig_background_immediate": 1003, "sig_background_avg": 998, "sig_background_max": 1022, "rf_packets_received": 63572, "rf_packets_transmitted": 8277857, "ax25_packets_received": 3211, "ax25_packets_transmitted": 3708250, "digipeater_rx_count": 3211, "digipeater_tx_count": 1518149, "csp_received": 59966, "csp_transmitted": 4569620, "i2c1_received": 19774702, "i2c1_transmitted": 107436, "i2c2_received": 106889, "i2c2_transmitted": 41483, "rs485_received": 421130, "rs485_transmitted": 15223593, "csp_mcu_received": 15249184, "csp_mcu_transmitted": null}
 ```
 
 If a frame is malformed or unreadable, the decoder prints `error: <file>: <reason>` to stderr and exits with code 1.
@@ -138,7 +163,7 @@ If a frame is malformed or unreadable, the decoder prints `error: <file>: <reaso
 python3 -m unittest discover -s tests -v
 ```
 
-There are twenty-six tests.
+There are thirty-four tests.
 
 **End-to-end CLI tests:**
 
@@ -165,6 +190,18 @@ There are twenty-six tests.
 - The real frame with `Digi` changed to `Digl` produces the error `expected digipeater counter label b'Digi', got b'Digl'`.
 - `SIG_FIELDS`, the output key list, matches the parser's field layout between `Sig` and `RX`.
 
+**Digi, CSP, I2C1, I2C2, RS485 and MCU tests:**
+
+- Both real fixtures decode all twelve of these values, and `csp_mcu_transmitted` is `null`.
+- The real fixture ends `,MCU,15249184,`. The output includes `csp_mcu_transmitted`, it is `None`, and the JSON text says `null`, not `0`.
+- Endings of `MCU,835,837`, `MCU,0,0` and `MCU,0,` decode to (835, 837), (0, 0) and (0, `None`).
+- Endings of `MCU,835,837,`, `MCU,835,8x7`, `MCU,835,837,9`, `MCU,15249184` (no final comma) and `MCU,` are each rejected with a named error.
+- A replacement ending `Digi,1,2,CSP,3,4,I2C1,5,6,I2C2,7,8,RS485,9,10,MCU,11,12` decodes 1 to 12 to the right keys, in payload order, and leaves the Ax counters unchanged.
+- Each of the labels `CSP`, `I2C1`, `I2C2`, `RS485` and `MCU` is rejected when misspelled.
+- The values `32l1`, `-4569620`, an empty value and `1.5e7` are rejected in the Digi, CSP, I2C2 and RS485 counters.
+- A CSP group with only one value is rejected, because the `I2C1` label lands in `csp_transmitted`'s slot.
+- `COUNTER_FIELDS`, the output key list, matches the parser's field layout from `RX` to `MCU`.
+
 **`NTC_TABLE` and `ntc_to_celsius` tests:**
 
 - The table has 42 points and starts and ends at the expected values.
@@ -176,4 +213,5 @@ There are twenty-six tests.
 ### Known caveats
 
 - The reference decoder gives `batt` and `temp_cpu` as raw integers with no units. The units used here come from the Cormorant guide, not the reference decoder. The guide's T field description cross-references Appendix II for the PA NTC value, but the appendix itself does not name the field it applies to.
-- `csp_mcu_transmitted` decodes as `null` because the payload ends with a trailing comma.
+- `csp_mcu_transmitted` is `null` in every real frame, because the frames end `,MCU,<received>,` with no transmitted value. The guide's example has the value, so the real frames don't match the documented format here. The CLI reports the value as missing and does not guess it.
+- `uptime_total`, `uptime_since_last` and `reset_count` are validated but not printed.

@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from telemetry_decoder import (  # noqa: E402
-    NTC_TABLE, SIG_FIELDS, _COMD_PREFIX, ntc_to_celsius,
+    COUNTER_FIELDS, NTC_TABLE, SIG_FIELDS, _COMD_PREFIX, ntc_to_celsius,
 )
 
 CLI = ROOT / "telemetry_decoder.py"
@@ -24,6 +24,14 @@ def run_cli(path):
     return subprocess.run(
         [sys.executable, str(CLI), str(path)], capture_output=True, text=True
     )
+
+
+def replace_mcu_tail(tail):
+    """The real fixture with its final ',MCU,15249184,' replaced by tail."""
+    data = REAL.read_bytes()
+    old = b",MCU,15249184,"
+    assert data.endswith(old)
+    return data[:-len(old)] + tail
 
 
 def run_cli_bytes(data):
@@ -52,6 +60,8 @@ class CliTests(unittest.TestCase):
     # sig_*: raw, in payload order after "Sig" (the guide gives no units).
     # rf_packets_*: the two RX counters (received, transmitted).
     # ax25_packets_*: the two Ax counters (received, transmitted).
+    # Digi..MCU counters follow; csp_mcu_transmitted is None because real
+    # frames end ",MCU,<received>," with no transmitted value.
     def test_real_fixture(self):
         self.assert_decodes(REAL, {
             "mcu_10mv": 333, "mcu_volts": 3.33,
@@ -63,6 +73,12 @@ class CliTests(unittest.TestCase):
             "sig_background_max": 1022,
             "rf_packets_received": 63572, "rf_packets_transmitted": 8277857,
             "ax25_packets_received": 3211, "ax25_packets_transmitted": 3708250,
+            "digipeater_rx_count": 3211, "digipeater_tx_count": 1518149,
+            "csp_received": 59966, "csp_transmitted": 4569620,
+            "i2c1_received": 19774702, "i2c1_transmitted": 107436,
+            "i2c2_received": 106889, "i2c2_transmitted": 41483,
+            "rs485_received": 421130, "rs485_transmitted": 15223593,
+            "csp_mcu_received": 15249184, "csp_mcu_transmitted": None,
         })
 
     def test_second_real_fixture_334(self):
@@ -77,6 +93,12 @@ class CliTests(unittest.TestCase):
             "sig_background_max": 1194,
             "rf_packets_received": 63572, "rf_packets_transmitted": 8276732,
             "ax25_packets_received": 3211, "ax25_packets_transmitted": 3707125,
+            "digipeater_rx_count": 3211, "digipeater_tx_count": 1517402,
+            "csp_received": 59966, "csp_transmitted": 4569620,
+            "i2c1_received": 19773647, "i2c1_transmitted": 107436,
+            "i2c2_received": 106889, "i2c2_transmitted": 41483,
+            "rs485_received": 421130, "rs485_transmitted": 15222538,
+            "csp_mcu_received": 15248129, "csp_mcu_transmitted": None,
         })
 
     def test_synthetic_frame_different_value(self):
@@ -91,6 +113,12 @@ class CliTests(unittest.TestCase):
             "sig_background_max": 1022,
             "rf_packets_received": 63572, "rf_packets_transmitted": 8277857,
             "ax25_packets_received": 3211, "ax25_packets_transmitted": 3708250,
+            "digipeater_rx_count": 3211, "digipeater_tx_count": 1518149,
+            "csp_received": 59966, "csp_transmitted": 4569620,
+            "i2c1_received": 19774702, "i2c1_transmitted": 107436,
+            "i2c2_received": 106889, "i2c2_transmitted": 41483,
+            "rs485_received": 421130, "rs485_transmitted": 15223593,
+            "csp_mcu_received": 15249184, "csp_mcu_transmitted": None,
         })
 
     def test_malformed_truncated_frame(self):
@@ -230,6 +258,99 @@ class CliTests(unittest.TestCase):
         i = names.index("signal label")
         self.assertEqual(tuple(names[i + 1:i + 7]), SIG_FIELDS)
         self.assertEqual(names[i + 7], "RF packet counter label")
+
+    # --- Digi, CSP, I2C1, I2C2, RS485 and MCU counters ---
+
+    def test_final_mcu_value_absent_is_null_not_zero(self):
+        # Every real frame ends ",MCU,<received>," with no transmitted value.
+        self.assertTrue(REAL.read_bytes().endswith(b",MCU,15249184,"))
+        r = run_cli(REAL)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = json.loads(r.stdout)
+        self.assertIn("csp_mcu_transmitted", out)
+        self.assertIsNone(out["csp_mcu_transmitted"])
+        self.assertIn('"csp_mcu_transmitted": null', r.stdout)
+
+    def test_mcu_tail_guide_form_and_explicit_zeros(self):
+        # The guide's example ends ",MCU,835,837" with no trailing comma.
+        cases = {
+            b",MCU,835,837": (835, 837),
+            b",MCU,0,0": (0, 0),
+            b",MCU,0,": (0, None),
+        }
+        for tail, expected in cases.items():
+            with self.subTest(tail=tail):
+                r = run_cli_bytes(replace_mcu_tail(tail))
+                self.assertEqual(r.returncode, 0, r.stderr)
+                out = json.loads(r.stdout)
+                self.assertEqual(
+                    (out["csp_mcu_received"], out["csp_mcu_transmitted"]), expected)
+
+    def test_mcu_tail_malformed_rejected(self):
+        cases = {
+            b",MCU,835,837,": "got b'837,'",
+            b",MCU,835,8x7": "got b'8x7'",
+            b",MCU,835,837,9": "got b'837,9'",
+            b",MCU,15249184": "csp_mcu_received field was terminated by ','",
+            b",MCU,": "csp_mcu_received field was terminated by ','",
+        }
+        for tail, message in cases.items():
+            with self.subTest(tail=tail):
+                self.assert_rejected(run_cli_bytes(replace_mcu_tail(tail)), message)
+
+    def test_counters_follow_payload_order(self):
+        data = REAL.read_bytes()
+        start = data.index(b",Digi,")
+        tail = (b",Digi,1,2,CSP,3,4,I2C1,5,6,I2C2,7,8,"
+                b"RS485,9,10,MCU,11,12")
+        r = run_cli_bytes(data[:start] + tail)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = json.loads(r.stdout)
+        names = COUNTER_FIELDS[COUNTER_FIELDS.index("digipeater_rx_count"):]
+        self.assertEqual([out[k] for k in names], list(range(1, 12)))
+        self.assertEqual(out["csp_mcu_transmitted"], 12)
+        self.assertEqual(out["ax25_packets_transmitted"], 3708250)
+
+    def test_counter_labels_required(self):
+        data = REAL.read_bytes()
+        cases = {
+            b",CSP,": (b",CSp,", "expected CSP packet counter label b'CSP', got b'CSp'"),
+            b",I2C1,": (b",I2C3,", "expected I2C1 packet counter label b'I2C1', got b'I2C3'"),
+            b",I2C2,": (b",I2C,", "expected I2C2 packet counter label b'I2C2', got b'I2C'"),
+            b",RS485,": (b",RS422,", "expected RS485 packet counter label b'RS485', got b'RS422'"),
+            b",MCU,": (b",MCu,", "expected MCU packet counter label b'MCU', got b'MCu'"),
+        }
+        for old, (new, message) in cases.items():
+            with self.subTest(label=old):
+                self.assertEqual(data.count(old), 1)
+                self.assert_rejected(run_cli_bytes(data.replace(old, new)), message)
+
+    def test_counter_values_must_be_numeric(self):
+        data = REAL.read_bytes()
+        cases = {
+            b",Digi,3211,": (b",Digi,32l1,", "digipeater_rx_count is not an unsigned integer: b'32l1'"),
+            b",4569620,I2C1,": (b",-4569620,I2C1,", "csp_transmitted is not an unsigned integer: b'-4569620'"),
+            b",I2C2,106889,": (b",I2C2,,", "i2c2_received is not an unsigned integer: b''"),
+            b",15223593,MCU,": (b",1.5e7,MCU,", "rs485_transmitted is not an unsigned integer: b'1.5e7'"),
+        }
+        for old, (new, message) in cases.items():
+            with self.subTest(field=old):
+                self.assertEqual(data.count(old), 1)
+                self.assert_rejected(run_cli_bytes(data.replace(old, new)), message)
+
+    def test_missing_counter_in_group(self):
+        # One CSP value: the I2C1 label lands in csp_transmitted's slot.
+        data = REAL.read_bytes()
+        old = b",CSP,59966,4569620,I2C1,"
+        self.assertEqual(data.count(old), 1)
+        r = run_cli_bytes(data.replace(old, b",CSP,59966,I2C1,"))
+        self.assert_rejected(r, "csp_transmitted is not an unsigned integer: b'I2C1'")
+
+    def test_counter_fields_match_parser_layout(self):
+        names = [n for e, n in _COMD_PREFIX if e is None]
+        start = names.index("rf_packets_received")
+        self.assertEqual(tuple(names[start:]), COUNTER_FIELDS)
+        self.assertEqual(_COMD_PREFIX[-2], (b"MCU", "MCU packet counter label"))
 
 
 class NtcTableTests(unittest.TestCase):
