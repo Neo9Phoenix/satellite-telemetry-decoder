@@ -18,6 +18,22 @@
 Metadata comes from the public SatNOGS Network API:
 `https://network.satnogs.org/api/observations/11737297/?format=json`
 
+## Second real fixture: GRBAlpha COMd beacon, mcu_10mv = 334
+
+| Field | Value |
+|---|---|
+| File | `fixtures/grbalpha_11738478_2025-06-09T12-34-55.bin` |
+| Size | 250 bytes |
+| SHA-256 | `3b9a054da68b1fc4ee2c9afcfa0a966f6139fdfc3737e71a188021078bc77234` |
+| SatNOGS observation ID | [11738478](https://network.satnogs.org/observations/11738478/) (ground station EIRSAT-1 GS - Dún Chaoin) |
+| Source URL | https://s3.eu-central-1.wasabisys.com/satnogs-network/data_obs/2025/6/9/12/11738478/data_11738478_2025-06-09T12-34-55_1 |
+| Capture time (UTC) | 2025-06-09T12:34:55Z (frame timestamp from the SatNOGS file name; observation window 2025-06-09T12:31:25Z – 12:37:06Z) |
+| Independent copy | [Observation 11738552](https://network.satnogs.org/observations/11738552/) (EIRSAT-1 GS - UCD Physics) received the same transmission. Its file `data_11738552_2025-06-09T12-34-55_1` is byte-identical. |
+| Downlink and frame format | Same as the first fixture: 437.025 MHz GFSK 9k6, and a raw AX.25 UI COMd frame with an identical 16-byte header |
+| Reference decoder | `satnogs-decoders==1.132.0` gives `"mcu_10mv": 334`, which is 3.34 V |
+
+This fixture is here because its value differs from the first real fixture. Of the 57 real COMd frames compared on 2025-06-09, 55 read 333 and only this transmission read 334.
+
 ### Synthetic fixture (not real satellite data)
 
 `fixtures/SYNTHETIC_grbalpha_comd_mcu_10mv_412.bin` is the real fixture with `,V,333,` replaced by `,V,412,`. Every other byte is unchanged, and it is 249 bytes.
@@ -74,9 +90,10 @@ If a frame is malformed or unreadable, the decoder prints `error: <file>: <reaso
 python3 -m unittest discover -s tests -v
 ```
 
-There are three tests:
+There are four tests:
 
-- The real fixture gives 333, which is 3.33 V.
+- The first real fixture gives 333, which is 3.33 V.
+- The second real fixture gives 334, which is 3.34 V.
 - The synthetic fixture gives 412, which is 4.12 V.
 - A frame truncated to 40 bytes produces an error naming `uptime_since_last`, a nonzero exit code and nothing on stdout.
 
