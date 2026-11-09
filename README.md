@@ -59,10 +59,11 @@ Expected output includes `"mcu_10mv": 333`, which is 3.33 V (onboard computer su
 
 ## Our decoder: `telemetry_decoder.py`
 
-This decoder uses the Python 3.9+ standard library only, with no extra dependencies. It reads a raw GRBAlpha AX.25 COMd frame and prints two fields as JSON:
+This decoder uses the Python 3.9+ standard library only, with no extra dependencies. It reads a raw GRBAlpha AX.25 COMd frame and prints three fields as JSON:
 
 - **`mcu_10mv`:** the onboard computer supply voltage, counted in 10 mV steps. `mcu_volts` is the same value in volts.
 - **`batt`:** the raw `Ve` reading. `batt_mv` is the GRBAlpha battery voltage worked out from it.
+- **`temp_cpu_k`:** the CPU core temperature in kelvin. `temp_cpu_c` is the same value in degrees Celsius.
 
 **Units, from the [Cormorant ham radio user guide](https://needronix.eu/products/cormorant/hamradio-user-guide/):**
 
@@ -70,6 +71,10 @@ This decoder uses the Python 3.9+ standard library only, with no extra dependenc
 - **`Ve`:** an "AUX V" reading. It is raw data from a 12-bit ADC against a 2.5 V reference, taken through a resistor divider whose ratio is specific to each mission. For GRBAlpha the guide gives `Vbat [mV] = Ve * 3,3713`, so `batt_mv = batt × 3.3713`. The calculation uses `Decimal`, so 2421 gives exactly 8161.9173.
 
 The conversion looks plausible: all 57 real COMd frames compared on 2025-06-09 give 8148–8263 mV. That is inside the guide's GRBAlpha 2S1P pack range, which runs from 6500 mV (critical) to 8300 mV (max). However, the guide's own example beacon (`Ve,937`, about 3159 mV) would fall below that range, and the guide does not explain why. Treat `batt_mv` as derived from the documented factor, not as independently confirmed.
+
+- **`T`:** the guide's description is `<CPU_core_temperature[K]>, <power_amplifier_NTC_raw_data>`. The first value is read as `temp_cpu_k`, and `temp_cpu_c = temp_cpu_k − 273.15`. That calculation also uses `Decimal`, so 303 K gives exactly 29.85 °C. The second value is a raw NTC reading, which the CLI does not decode.
+
+The 57 real COMd frames compared on 2025-06-09 give 287–298 K (13.85–24.85 °C), and the first fixture gives 303 K (29.85 °C).
 
 It follows the frame layout from the reference decoder's `comd` type, which cites the Needronix Cormorant ham radio user guide:
 
@@ -80,16 +85,16 @@ It follows the frame layout from the reference decoder's `comd` type, which cite
 
 - **Exact header:** the first 16 bytes must equal the header above, byte for byte. Any other header is rejected, including a different SSID byte. For example, the other OM9GRB frames from the same pass end the source address with `0x7f` instead of `0x61`, so the CLI rejects them.
 - **Payload start:** the byte after the header must be `,`.
-- **Fields through `T`:** the next eleven fields are checked in order, and each must end with `,`:
+- **Fields through `temp_cpu`:** the next twelve fields are checked in order, and each must end with `,`:
   - `COMd`, `U`, `R`, `V`, `Ve` and `T` must match exactly.
-  - `uptime_total`, `uptime_since_last`, `reset_count`, `mcu_10mv` and `batt` must be unsigned decimal integers (ASCII `0-9` only).
-- **Not checked:** anything after the `T,` label, such as temperatures, signal levels and counters. It is neither parsed nor validated. There is also no FCS/CRC to check, because SatNOGS stores the frame without one.
+  - `uptime_total`, `uptime_since_last`, `reset_count`, `mcu_10mv`, `batt` and `temp_cpu` must be unsigned decimal integers (ASCII `0-9` only).
+- **Not checked:** anything after `temp_cpu`, such as the PA NTC reading, signal levels and counters. It is neither parsed nor validated. There is also no FCS/CRC to check, because SatNOGS stores the frame without one.
 
 ### Run
 
 ```sh
 python3 telemetry_decoder.py fixtures/grbalpha_11737297_2025-06-09T18-53-26.bin
-# {"mcu_10mv": 333, "mcu_volts": 3.33, "batt": 2421, "batt_mv": 8161.9173}
+# {"mcu_10mv": 333, "mcu_volts": 3.33, "batt": 2421, "batt_mv": 8161.9173, "temp_cpu_k": 303, "temp_cpu_c": 29.85}
 ```
 
 If a frame is malformed or unreadable, the decoder prints `error: <file>: <reason>` to stderr and exits with code 1.
@@ -100,15 +105,16 @@ If a frame is malformed or unreadable, the decoder prints `error: <file>: <reaso
 python3 -m unittest discover -s tests -v
 ```
 
-There are five tests:
+There are six tests:
 
-- The first real fixture gives `mcu_10mv` 333 (3.33 V) and `batt` 2421 (8161.9173 mV).
-- The second real fixture gives `mcu_10mv` 334 (3.34 V) and `batt` 2447 (8249.5711 mV).
-- The synthetic fixture gives `mcu_10mv` 412 (4.12 V). Its `batt` is unchanged at 2421 (8161.9173 mV).
+- The first real fixture gives `mcu_10mv` 333 (3.33 V), `batt` 2421 (8161.9173 mV) and `temp_cpu` 303 K (29.85 °C).
+- The second real fixture gives `mcu_10mv` 334 (3.34 V), `batt` 2447 (8249.5711 mV) and `temp_cpu` 290 K (16.85 °C).
+- The synthetic fixture gives `mcu_10mv` 412 (4.12 V). Its `batt` (2421) and `temp_cpu` (303 K) are unchanged.
 - A frame truncated to 40 bytes produces an error naming `uptime_since_last`, a nonzero exit code and nothing on stdout.
 - The real frame with `batt` changed to `24x1` produces the error `batt is not an unsigned integer: b'24x1'`, a nonzero exit code and nothing on stdout.
+- The real frame with `temp_cpu` changed to `3a3` produces the error `temp_cpu is not an unsigned integer: b'3a3'`, a nonzero exit code and nothing on stdout.
 
 ### Known caveats
 
-- The reference decoder gives `batt` and `temp_cpu` as raw integers with no units. The units used here come from the Cormorant guide, not the reference decoder. The guide gives `temp_cpu` in kelvin (303 K is 29.85 °C), but our CLI does not decode it yet.
+- The reference decoder gives `batt` and `temp_cpu` as raw integers with no units. The units used here come from the Cormorant guide, not the reference decoder. The PA NTC value (`temp_pa_ntc`) is a raw ADC reading. The guide's Appendix II has an ADC-to-°C lookup table for it, but the CLI does not decode it.
 - `csp_mcu_transmitted` decodes as `null` because the payload ends with a trailing comma.

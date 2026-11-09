@@ -16,6 +16,9 @@ mcu_10mv is the onboard computer supply voltage in units of 10 mV.
 batt (the "Ve" field) is a raw 12-bit ADC count (2.5 V reference) of an
 external voltage behind a resistor divider. For GRBAlpha the Cormorant guide
 gives battery voltage as Vbat [mV] = Ve * 3.3713.
+
+temp_cpu (first value after "T") is the CPU core temperature in kelvin;
+Celsius = K - 273.15.
 Source: https://needronix.eu/products/cormorant/hamradio-user-guide/
 """
 
@@ -29,8 +32,9 @@ AX25_HEADER = bytes.fromhex("86a240404040e09e9a728ea4846103f0")
 FIELD_SEP = b","
 _UINT = re.compile(rb"[0-9]+")
 GRBALPHA_VBAT_MV_PER_COUNT = Decimal("3.3713")
+KELVIN_OFFSET = Decimal("273.15")
 
-# Fields up to and including the "T" label after batt. None marks a numeric
+# Fields up to and including temp_cpu (the first value after "T"). None marks a numeric
 # value; a bytes value is a literal label that must match exactly.
 _COMD_PREFIX = (
     (b"COMd", "frame type"),
@@ -44,6 +48,7 @@ _COMD_PREFIX = (
     (b"Ve", "battery voltage label"),
     (None, "batt"),
     (b"T", "temperature label"),
+    (None, "temp_cpu"),
 )
 
 
@@ -95,10 +100,15 @@ def batt_to_mv(batt: int) -> float:
     return float(Decimal(batt) * GRBALPHA_VBAT_MV_PER_COUNT)
 
 
+def kelvin_to_celsius(kelvin: int) -> float:
+    # Decimal keeps e.g. 303 -> 29.85 exact.
+    return float(Decimal(kelvin) - KELVIN_OFFSET)
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
-        description="Print mcu_10mv (and volts) and batt (and mV) from a raw "
-        "GRBAlpha AX.25 COMd frame as JSON."
+        description="Print mcu_10mv (and volts), batt (and mV) and temp_cpu "
+        "(K and degrees C) from a raw GRBAlpha AX.25 COMd frame as JSON."
     )
     parser.add_argument("frame_file", help="path to a raw binary frame (AX.25 without FCS)")
     args = parser.parse_args(argv)
@@ -116,6 +126,8 @@ def main(argv=None) -> int:
         "mcu_volts": to_volts(values["mcu_10mv"]),
         "batt": values["batt"],
         "batt_mv": batt_to_mv(values["batt"]),
+        "temp_cpu_k": values["temp_cpu"],
+        "temp_cpu_c": kelvin_to_celsius(values["temp_cpu"]),
     }))
     return 0
 

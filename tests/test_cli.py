@@ -40,23 +40,27 @@ class CliTests(unittest.TestCase):
         self.assertIn(field, r.stderr)
 
     # batt_mv = batt * 3.3713 (GRBAlpha factor from the Cormorant guide).
+    # temp_cpu_c = temp_cpu_k - 273.15 (guide gives temp_cpu in kelvin).
     def test_real_fixture(self):
         self.assert_decodes(REAL, {
             "mcu_10mv": 333, "mcu_volts": 3.33,
             "batt": 2421, "batt_mv": 8161.9173,
+            "temp_cpu_k": 303, "temp_cpu_c": 29.85,
         })
 
     def test_second_real_fixture_334(self):
         self.assert_decodes(REAL_334, {
             "mcu_10mv": 334, "mcu_volts": 3.34,
             "batt": 2447, "batt_mv": 8249.5711,
+            "temp_cpu_k": 290, "temp_cpu_c": 16.85,
         })
 
     def test_synthetic_frame_different_value(self):
-        # Only V was changed; batt is the real fixture's value.
+        # Only V was changed; batt and temp_cpu are the real fixture's values.
         self.assert_decodes(SYNTHETIC, {
             "mcu_10mv": 412, "mcu_volts": 4.12,
             "batt": 2421, "batt_mv": 8161.9173,
+            "temp_cpu_k": 303, "temp_cpu_c": 29.85,
         })
 
     def test_malformed_truncated_frame(self):
@@ -69,6 +73,12 @@ class CliTests(unittest.TestCase):
         self.assertEqual(data.count(b",Ve,2421,"), 1)
         r = run_cli_bytes(data.replace(b",Ve,2421,", b",Ve,24x1,"))
         self.assert_rejected(r, "batt is not an unsigned integer: b'24x1'")
+
+    def test_malformed_non_numeric_temp_cpu(self):
+        data = REAL.read_bytes()
+        self.assertEqual(data.count(b",T,303,"), 1)
+        r = run_cli_bytes(data.replace(b",T,303,", b",T,3a3,"))
+        self.assert_rejected(r, "temp_cpu is not an unsigned integer: b'3a3'")
 
 
 if __name__ == "__main__":
