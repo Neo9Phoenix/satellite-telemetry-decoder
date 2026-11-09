@@ -8,7 +8,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from telemetry_decoder import NTC_TABLE, ntc_to_celsius  # noqa: E402
+from telemetry_decoder import (  # noqa: E402
+    NTC_TABLE, SIG_FIELDS, _COMD_PREFIX, ntc_to_celsius,
+)
 
 CLI = ROOT / "telemetry_decoder.py"
 REAL = ROOT / "fixtures" / "grbalpha_11737297_2025-06-09T18-53-26.bin"
@@ -47,12 +49,16 @@ class CliTests(unittest.TestCase):
     # temp_cpu_c = temp_cpu_k - 273.15 (guide gives temp_cpu in kelvin).
     # temp_pa_c: linear interpolation in the Appendix II NTC table, e.g.
     # 1854 lies between (2048, 25) and (1827, 30): 25 + 194/221*5 = 29.39.
+    # sig_*: raw, in payload order after "Sig" (the guide gives no units).
     def test_real_fixture(self):
         self.assert_decodes(REAL, {
             "mcu_10mv": 333, "mcu_volts": 3.33,
             "batt": 2421, "batt_mv": 8161.9173,
             "temp_cpu_k": 303, "temp_cpu_c": 29.85,
             "temp_pa_ntc": 1854, "temp_pa_c": 29.39,
+            "sig_rx_immediate": 1917, "sig_rx_avg": 1751, "sig_rx_max": 1751,
+            "sig_background_immediate": 1003, "sig_background_avg": 998,
+            "sig_background_max": 1022,
         })
 
     def test_second_real_fixture_334(self):
@@ -62,6 +68,9 @@ class CliTests(unittest.TestCase):
             "temp_cpu_k": 290, "temp_cpu_c": 16.85,
             # 2411 between (2503, 15) and (2275, 20): 15 + 92/228*5 = 17.02.
             "temp_pa_ntc": 2411, "temp_pa_c": 17.02,
+            "sig_rx_immediate": 1917, "sig_rx_avg": 1751, "sig_rx_max": 1751,
+            "sig_background_immediate": 1219, "sig_background_avg": 1193,
+            "sig_background_max": 1194,
         })
 
     def test_synthetic_frame_different_value(self):
@@ -71,6 +80,9 @@ class CliTests(unittest.TestCase):
             "batt": 2421, "batt_mv": 8161.9173,
             "temp_cpu_k": 303, "temp_cpu_c": 29.85,
             "temp_pa_ntc": 1854, "temp_pa_c": 29.39,
+            "sig_rx_immediate": 1917, "sig_rx_avg": 1751, "sig_rx_max": 1751,
+            "sig_background_immediate": 1003, "sig_background_avg": 998,
+            "sig_background_max": 1022,
         })
 
     def test_malformed_truncated_frame(self):
@@ -112,6 +124,42 @@ class CliTests(unittest.TestCase):
         self.assertEqual(data.count(b",Sig,"), 1)
         r = run_cli_bytes(data.replace(b",Sig,", b",Sgi,"))
         self.assert_rejected(r, "expected signal label b'Sig', got b'Sgi'")
+
+    def test_sig_values_follow_payload_order(self):
+        # Six distinct values make any swapped field visible.
+        data = REAL.read_bytes()
+        old = b",Sig,1917,1751,1751,1003,998,1022,RX,"
+        self.assertEqual(data.count(old), 1)
+        r = run_cli_bytes(data.replace(old, b",Sig,1,22,333,4444,5,66,RX,"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = json.loads(r.stdout)
+        self.assertEqual([out[k] for k in SIG_FIELDS], [1, 22, 333, 4444, 5, 66])
+
+    def test_malformed_non_numeric_sig_value(self):
+        data = REAL.read_bytes()
+        r = run_cli_bytes(data.replace(b",1003,998,1022,RX,", b",1003,9o8,1022,RX,"))
+        self.assert_rejected(
+            r, "sig_background_avg is not an unsigned integer: b'9o8'")
+
+    def test_malformed_missing_sig_value(self):
+        # Only five values: the RX label lands in the sixth value's slot.
+        data = REAL.read_bytes()
+        r = run_cli_bytes(data.replace(b",1003,998,1022,RX,", b",1003,998,RX,"))
+        self.assert_rejected(
+            r, "sig_background_max is not an unsigned integer: b'RX'")
+
+    def test_missing_rx_label(self):
+        data = REAL.read_bytes()
+        self.assertEqual(data.count(b",RX,"), 1)
+        r = run_cli_bytes(data.replace(b",RX,", b",XR,"))
+        self.assert_rejected(
+            r, "expected RF packet counter label b'RX', got b'XR'")
+
+    def test_sig_fields_match_parser_layout(self):
+        names = [n for _, n in _COMD_PREFIX]
+        i = names.index("signal label")
+        self.assertEqual(tuple(names[i + 1:i + 7]), SIG_FIELDS)
+        self.assertEqual(names[i + 7], "RF packet counter label")
 
 
 class NtcTableTests(unittest.TestCase):

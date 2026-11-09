@@ -59,12 +59,13 @@ Expected output includes `"mcu_10mv": 333`, which is 3.33 V (onboard computer su
 
 ## Our decoder: `telemetry_decoder.py`
 
-This decoder uses the Python 3.9+ standard library only, with no extra dependencies. It reads a raw GRBAlpha AX.25 COMd frame and prints four fields as JSON:
+This decoder uses the Python 3.9+ standard library only, with no extra dependencies. It reads a raw GRBAlpha AX.25 COMd frame and prints these fields as JSON:
 
 - **`mcu_10mv`:** the onboard computer supply voltage, counted in 10 mV steps. `mcu_volts` is the same value in volts.
 - **`batt`:** the raw `Ve` reading. `batt_mv` is the GRBAlpha battery voltage worked out from it.
 - **`temp_cpu_k`:** the CPU core temperature in kelvin. `temp_cpu_c` is the same value in degrees Celsius.
 - **`temp_pa_ntc`:** the raw power-amplifier NTC reading. `temp_pa_c` is that reading converted to degrees Celsius.
+- **Six raw radio signal values:** `sig_rx_immediate`, `sig_rx_avg`, `sig_rx_max`, `sig_background_immediate`, `sig_background_avg` and `sig_background_max`. They have no units.
 
 **Units, from the [Cormorant ham radio user guide](https://needronix.eu/products/cormorant/hamradio-user-guide/):**
 
@@ -84,25 +85,34 @@ The 57 real COMd frames compared on 2025-06-09 give 287–298 K (13.85–24.85 �
 
   A cross-check supports the conversion: on all 57 real COMd frames, `temp_pa_c` stays within −1.41 to +0.31 °C of the CPU temperature, which is an independent sensor. The two fixtures give PA 29.39 °C against CPU 29.85 °C, and PA 17.02 °C against CPU 16.85 °C.
 
+- **`Sig`:** the guide lists the six values as `<sigRxImmediate>, <sigiRxAvg>, <sigRxMax>, <sigBackgroundImmediate>, <sigBackgroundAvg>, <sigBackgroundMax>`, which is the same order the reference decoder uses. It describes them only as "Radio signal", with empty unit cells. The page mentions no RSSI, dBm or scaling for them; dBm appears only in the 1 W transmit power. So the CLI outputs them as raw integers and does not convert them to dBm.
+
+  Observations from the 57 real COMd frames suggest the names don't mean exactly what they say:
+  - `sig_rx_immediate` is greater than `sig_rx_max` in all 57 frames.
+  - `sig_background_immediate` is greater than `sig_background_max` in 12 frames.
+  - The three RX values take only three distinct sets of values across all 57 frames. They may update only when the satellite receives a packet.
+
+  So "max" is not a simple running maximum of the immediate value. The CLI does not check any relationship between the six values.
+
 It follows the frame layout from the reference decoder's `comd` type, which cites the Needronix Cormorant ham radio user guide:
 
 - **Bytes 0–15:** a fixed AX.25 UI header, `86a240404040e09e9a728ea4846103f0`. That is CQ-0 ← OM9GRB-0, control `0x03`, PID `0xF0`, with no FCS.
-- **Bytes 16 onward:** an ASCII payload, `,COMd,U,<uptime_total>,<uptime_since_last>,R,<reset_count>,V,<mcu_10mv>,Ve,<batt>,T,...`
+- **Bytes 16 onward:** an ASCII payload, `,COMd,U,<uptime_total>,<uptime_since_last>,R,<reset_count>,V,<mcu_10mv>,Ve,<batt>,T,<temp_cpu>,<temp_pa_ntc>,Sig,<six signal values>,RX,...`
 
 **What the CLI validates:**
 
 - **Exact header:** the first 16 bytes must equal the header above, byte for byte. Any other header is rejected, including a different SSID byte. For example, the other OM9GRB frames from the same pass end the source address with `0x7f` instead of `0x61`, so the CLI rejects them.
 - **Payload start:** the byte after the header must be `,`.
-- **Fields through `Sig`:** the next fourteen fields are checked in order, and each must end with `,`:
-  - `COMd`, `U`, `R`, `V`, `Ve`, `T` and `Sig` must match exactly.
-  - `uptime_total`, `uptime_since_last`, `reset_count`, `mcu_10mv`, `batt`, `temp_cpu` and `temp_pa_ntc` must be unsigned decimal integers (ASCII `0-9` only).
-- **Not checked:** anything after the `Sig,` label, such as signal levels and counters. It is neither parsed nor validated. There is also no FCS/CRC to check, because SatNOGS stores the frame without one.
+- **Fields through `RX`:** the next twenty-one fields are checked in order, and each must end with `,`:
+  - `COMd`, `U`, `R`, `V`, `Ve`, `T`, `Sig` and `RX` must match exactly.
+  - `uptime_total`, `uptime_since_last`, `reset_count`, `mcu_10mv`, `batt`, `temp_cpu`, `temp_pa_ntc` and the six `sig_*` values must be unsigned decimal integers (ASCII `0-9` only).
+- **Not checked:** anything after the `RX,` label, which is the packet counters. It is neither parsed nor validated. There is also no FCS/CRC to check, because SatNOGS stores the frame without one.
 
 ### Run
 
 ```sh
 python3 telemetry_decoder.py fixtures/grbalpha_11737297_2025-06-09T18-53-26.bin
-# {"mcu_10mv": 333, "mcu_volts": 3.33, "batt": 2421, "batt_mv": 8161.9173, "temp_cpu_k": 303, "temp_cpu_c": 29.85, "temp_pa_ntc": 1854, "temp_pa_c": 29.39}
+# {"mcu_10mv": 333, "mcu_volts": 3.33, "batt": 2421, "batt_mv": 8161.9173, "temp_cpu_k": 303, "temp_cpu_c": 29.85, "temp_pa_ntc": 1854, "temp_pa_c": 29.39, "sig_rx_immediate": 1917, "sig_rx_avg": 1751, "sig_rx_max": 1751, "sig_background_immediate": 1003, "sig_background_avg": 998, "sig_background_max": 1022}
 ```
 
 If a frame is malformed or unreadable, the decoder prints `error: <file>: <reason>` to stderr and exits with code 1.
@@ -113,12 +123,12 @@ If a frame is malformed or unreadable, the decoder prints `error: <file>: <reaso
 python3 -m unittest discover -s tests -v
 ```
 
-There are thirteen tests.
+There are eighteen tests.
 
 **End-to-end CLI tests:**
 
-- The first real fixture gives `mcu_10mv` 333 (3.33 V), `batt` 2421 (8161.9173 mV), `temp_cpu` 303 K (29.85 °C) and `temp_pa_ntc` 1854 (29.39 °C).
-- The second real fixture gives `mcu_10mv` 334 (3.34 V), `batt` 2447 (8249.5711 mV), `temp_cpu` 290 K (16.85 °C) and `temp_pa_ntc` 2411 (17.02 °C).
+- The first real fixture gives `mcu_10mv` 333 (3.33 V), `batt` 2421 (8161.9173 mV), `temp_cpu` 303 K (29.85 °C) `temp_pa_ntc` 1854 (29.39 °C) and Sig values `1917,1751,1751,1003,998,1022`.
+- The second real fixture gives `mcu_10mv` 334 (3.34 V), `batt` 2447 (8249.5711 mV), `temp_cpu` 290 K (16.85 °C) `temp_pa_ntc` 2411 (17.02 °C) and Sig values `1917,1751,1751,1219,1193,1194`.
 - The synthetic fixture gives `mcu_10mv` 412 (4.12 V). Its other fields are unchanged from the first real fixture.
 - A frame truncated to 40 bytes produces an error naming `uptime_since_last`, a nonzero exit code and nothing on stdout.
 - The real frame with `batt` changed to `24x1` produces the error `batt is not an unsigned integer: b'24x1'`, a nonzero exit code and nothing on stdout.
@@ -126,6 +136,11 @@ There are thirteen tests.
 - The real frame with the PA NTC reading changed to `0` still decodes. `temp_pa_ntc` is 0 and `temp_pa_c` is `null`.
 - The real frame with `temp_pa_ntc` changed to `18z4` produces the error `temp_pa_ntc is not an unsigned integer: b'18z4'`.
 - The real frame with `Sig` changed to `Sgi` produces the error `expected signal label b'Sig', got b'Sgi'`.
+- The real frame with its Sig values replaced by `1,22,333,4444,5,66` decodes those six values to the six `sig_*` keys in payload order.
+- The real frame with a Sig value changed to `9o8` produces the error `sig_background_avg is not an unsigned integer: b'9o8'`.
+- The real frame with only five Sig values produces the error `sig_background_max is not an unsigned integer: b'RX'`.
+- The real frame with `RX` changed to `XR` produces the error `expected RF packet counter label b'RX', got b'XR'`.
+- `SIG_FIELDS`, the output key list, matches the parser's field layout between `Sig` and `RX`.
 
 **`NTC_TABLE` and `ntc_to_celsius` tests:**
 

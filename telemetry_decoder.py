@@ -22,6 +22,10 @@ Celsius = K - 273.15.
 
 temp_pa_ntc (second value after "T") is the raw power-amplifier NTC ADC
 reading, converted to degrees C with the guide's Appendix II table.
+
+The six "Sig" values are, in order, sigRxImmediate, sigRxAvg, sigRxMax,
+sigBackgroundImmediate, sigBackgroundAvg and sigBackgroundMax. The guide
+documents them only as "Radio signal" with no units, so they are raw.
 Source: https://needronix.eu/products/cormorant/hamradio-user-guide/
 """
 
@@ -51,7 +55,7 @@ NTC_TABLE = (
     (82, 145), (73, 150),
 )
 
-# Fields up to and including the "Sig" label after the two "T" values. None marks a numeric
+# Fields up to and including the "RX" label after the six "Sig" values. None marks a numeric
 # value; a bytes value is a literal label that must match exactly.
 _COMD_PREFIX = (
     (b"COMd", "frame type"),
@@ -68,6 +72,13 @@ _COMD_PREFIX = (
     (None, "temp_cpu"),
     (None, "temp_pa_ntc"),
     (b"Sig", "signal label"),
+    (None, "sig_rx_immediate"),
+    (None, "sig_rx_avg"),
+    (None, "sig_rx_max"),
+    (None, "sig_background_immediate"),
+    (None, "sig_background_avg"),
+    (None, "sig_background_max"),
+    (b"RX", "RF packet counter label"),
 )
 
 
@@ -75,8 +86,14 @@ class FrameError(ValueError):
     """The input is not a well-formed GRBAlpha COMd frame."""
 
 
+SIG_FIELDS = (
+    "sig_rx_immediate", "sig_rx_avg", "sig_rx_max",
+    "sig_background_immediate", "sig_background_avg", "sig_background_max",
+)
+
+
 def decode_comd(frame: bytes) -> dict:
-    """Return the numeric COMd fields up to batt, keyed by name."""
+    """Return the numeric COMd fields up to the "RX" label, keyed by name."""
     if len(frame) < len(AX25_HEADER):
         raise FrameError(
             f"frame is {len(frame)} bytes; need at least {len(AX25_HEADER)} "
@@ -145,8 +162,8 @@ def ntc_to_celsius(adc: int):
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         description="Print mcu_10mv (and volts), batt (and mV), temp_cpu "
-        "(K and degrees C) and temp_pa_ntc (raw and degrees C) from a raw "
-        "GRBAlpha AX.25 COMd frame as JSON."
+        "(K and degrees C), temp_pa_ntc (raw and degrees C) and the six raw "
+        "Sig signal values from a raw GRBAlpha AX.25 COMd frame as JSON."
     )
     parser.add_argument("frame_file", help="path to a raw binary frame (AX.25 without FCS)")
     args = parser.parse_args(argv)
@@ -168,6 +185,7 @@ def main(argv=None) -> int:
         "temp_cpu_c": kelvin_to_celsius(values["temp_cpu"]),
         "temp_pa_ntc": values["temp_pa_ntc"],
         "temp_pa_c": ntc_to_celsius(values["temp_pa_ntc"]),
+        **{name: values[name] for name in SIG_FIELDS},
     }))
     return 0
 
