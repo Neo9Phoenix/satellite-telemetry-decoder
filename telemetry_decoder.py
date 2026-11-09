@@ -1,0 +1,104 @@
+#!/usr/bin/env python3
+"""Decode mcu_10mv from a GRBAlpha AX.25 "COMd" beacon frame.
+
+The frame layout follows the reference decoder (satnogs-decoders 1.132.0,
+grbalpha.ksy, type `comd`, which cites the Needronix Cormorant ham radio
+user guide):
+
+  bytes 0-15  AX.25 UI header, no FCS: dest "CQ" SSID 0, src "OM9GRB" SSID 0,
+              control 0x03, PID 0xF0
+  bytes 16-   ASCII payload: ",COMd,U,<uptime_total>,<uptime_since_last>,
+              R,<reset_count>,V,<mcu_10mv>,Ve,<batt>,..."
+              Each field ends with a comma (0x2C).
+
+mcu_10mv is the onboard computer supply voltage in units of 10 mV.
+"""
+
+import argparse
+import json
+import re
+import sys
+from decimal import Decimal
+
+AX25_HEADER = bytes.fromhex("86a240404040e09e9a728ea4846103f0")
+FIELD_SEP = b","
+_UINT = re.compile(rb"[0-9]+")
+
+# Fields up to and including mcu_10mv. None marks a numeric value; a bytes
+# value is a literal label that must match exactly.
+_COMD_PREFIX = (
+    (b"COMd", "frame type"),
+    (b"U", "uptime label"),
+    (None, "uptime_total"),
+    (None, "uptime_since_last"),
+    (b"R", "reset label"),
+    (None, "reset_count"),
+    (b"V", "MCU voltage label"),
+    (None, "mcu_10mv"),
+    (b"Ve", "battery voltage label"),
+)
+
+
+class FrameError(ValueError):
+    """The input is not a well-formed GRBAlpha COMd frame."""
+
+
+def decode_mcu_10mv(frame: bytes) -> int:
+    if len(frame) < len(AX25_HEADER):
+        raise FrameError(
+            f"frame is {len(frame)} bytes; need at least {len(AX25_HEADER)} "
+            "for the AX.25 header"
+        )
+    if frame[: len(AX25_HEADER)] != AX25_HEADER:
+        raise FrameError(
+            "AX.25 header does not match GRBAlpha COMd "
+            f"(expected {AX25_HEADER.hex()}, got {frame[:len(AX25_HEADER)].hex()})"
+        )
+
+    payload = frame[len(AX25_HEADER):]
+    if not payload.startswith(FIELD_SEP):
+        raise FrameError("payload does not start with ','")
+
+    pos = 1
+    values = {}
+    for expected, name in _COMD_PREFIX:
+        end = payload.find(FIELD_SEP, pos)
+        if end < 0:
+            raise FrameError(f"frame ended before the {name} field was terminated by ','")
+        token = payload[pos:end]
+        pos = end + 1
+        if expected is None:
+            if not _UINT.fullmatch(token):
+                raise FrameError(f"{name} is not an unsigned integer: {token!r}")
+            values[name] = int(token)
+        elif token != expected:
+            raise FrameError(f"expected {name} {expected!r}, got {token!r}")
+    return values["mcu_10mv"]
+
+
+def to_volts(mcu_10mv: int) -> float:
+    # Decimal avoids binary rounding noise, e.g. 333 -> 3.33 exactly.
+    return float(Decimal(mcu_10mv) / 100)
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Print mcu_10mv and volts from a raw GRBAlpha AX.25 COMd frame as JSON."
+    )
+    parser.add_argument("frame_file", help="path to a raw binary frame (AX.25 without FCS)")
+    args = parser.parse_args(argv)
+
+    try:
+        with open(args.frame_file, "rb") as f:
+            frame = f.read()
+        mcu_10mv = decode_mcu_10mv(frame)
+    except (OSError, FrameError) as e:
+        print(f"error: {args.frame_file}: {e}", file=sys.stderr)
+        return 1
+
+    print(json.dumps({"mcu_10mv": mcu_10mv, "mcu_volts": to_volts(mcu_10mv)}))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
