@@ -28,7 +28,8 @@ sigBackgroundImmediate, sigBackgroundAvg and sigBackgroundMax. The guide
 documents them only as "Radio signal" with no units, so they are raw.
 
 The two "RX" values are RF-side packet counts: packets received and packets
-transmitted by the transceiver.
+transmitted by the transceiver. The two "Ax" values are the AX.25 packet
+counts, received and transmitted.
 Source: https://needronix.eu/products/cormorant/hamradio-user-guide/
 """
 
@@ -58,7 +59,7 @@ NTC_TABLE = (
     (82, 145), (73, 150),
 )
 
-# Fields up to and including the "Ax" label after the two "RX" counters. None marks a numeric
+# Fields up to and including the "Digi" label after the two "Ax" counters. None marks a numeric
 # value; a bytes value is a literal label that must match exactly.
 _COMD_PREFIX = (
     (b"COMd", "frame type"),
@@ -85,6 +86,9 @@ _COMD_PREFIX = (
     (None, "rf_packets_received"),
     (None, "rf_packets_transmitted"),
     (b"Ax", "AX.25 packet counter label"),
+    (None, "ax25_packets_received"),
+    (None, "ax25_packets_transmitted"),
+    (b"Digi", "digipeater counter label"),
 )
 
 
@@ -99,7 +103,7 @@ SIG_FIELDS = (
 
 
 def decode_comd(frame: bytes) -> dict:
-    """Return the numeric COMd fields up to the "Ax" label, keyed by name."""
+    """Return the numeric COMd fields up to the "Digi" label, keyed by name."""
     if len(frame) < len(AX25_HEADER):
         raise FrameError(
             f"frame is {len(frame)} bytes; need at least {len(AX25_HEADER)} "
@@ -169,7 +173,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         description="Print mcu_10mv (and volts), batt (and mV), temp_cpu "
         "(K and degrees C), temp_pa_ntc (raw and degrees C), the six raw "
-        "Sig signal values and the two RX packet counters from a raw "
+        "Sig signal values and the RX and Ax packet counters from a raw "
         "GRBAlpha AX.25 COMd frame as JSON."
     )
     parser.add_argument("frame_file", help="path to a raw binary frame (AX.25 without FCS)")
@@ -195,6 +199,8 @@ def main(argv=None) -> int:
         **{name: values[name] for name in SIG_FIELDS},
         "rf_packets_received": values["rf_packets_received"],
         "rf_packets_transmitted": values["rf_packets_transmitted"],
+        "ax25_packets_received": values["ax25_packets_received"],
+        "ax25_packets_transmitted": values["ax25_packets_transmitted"],
     }))
     return 0
 

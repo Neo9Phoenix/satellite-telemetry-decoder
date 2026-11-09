@@ -51,6 +51,7 @@ class CliTests(unittest.TestCase):
     # 1854 lies between (2048, 25) and (1827, 30): 25 + 194/221*5 = 29.39.
     # sig_*: raw, in payload order after "Sig" (the guide gives no units).
     # rf_packets_*: the two RX counters (received, transmitted).
+    # ax25_packets_*: the two Ax counters (received, transmitted).
     def test_real_fixture(self):
         self.assert_decodes(REAL, {
             "mcu_10mv": 333, "mcu_volts": 3.33,
@@ -61,6 +62,7 @@ class CliTests(unittest.TestCase):
             "sig_background_immediate": 1003, "sig_background_avg": 998,
             "sig_background_max": 1022,
             "rf_packets_received": 63572, "rf_packets_transmitted": 8277857,
+            "ax25_packets_received": 3211, "ax25_packets_transmitted": 3708250,
         })
 
     def test_second_real_fixture_334(self):
@@ -74,6 +76,7 @@ class CliTests(unittest.TestCase):
             "sig_background_immediate": 1219, "sig_background_avg": 1193,
             "sig_background_max": 1194,
             "rf_packets_received": 63572, "rf_packets_transmitted": 8276732,
+            "ax25_packets_received": 3211, "ax25_packets_transmitted": 3707125,
         })
 
     def test_synthetic_frame_different_value(self):
@@ -87,6 +90,7 @@ class CliTests(unittest.TestCase):
             "sig_background_immediate": 1003, "sig_background_avg": 998,
             "sig_background_max": 1022,
             "rf_packets_received": 63572, "rf_packets_transmitted": 8277857,
+            "ax25_packets_received": 3211, "ax25_packets_transmitted": 3708250,
         })
 
     def test_malformed_truncated_frame(self):
@@ -188,6 +192,38 @@ class CliTests(unittest.TestCase):
         r = run_cli_bytes(data.replace(b",Ax,", b",AX,"))
         self.assert_rejected(
             r, "expected AX.25 packet counter label b'Ax', got b'AX'")
+
+    def test_ax_counters_follow_payload_order(self):
+        data = REAL.read_bytes()
+        old = b",Ax,3211,3708250,Digi,"
+        self.assertEqual(data.count(old), 1)
+        r = run_cli_bytes(data.replace(old, b",Ax,7,89,Digi,"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = json.loads(r.stdout)
+        self.assertEqual(
+            (out["ax25_packets_received"], out["ax25_packets_transmitted"]), (7, 89))
+        # The RX counters just before Ax are untouched.
+        self.assertEqual(out["rf_packets_transmitted"], 8277857)
+
+    def test_malformed_non_numeric_ax_counter(self):
+        data = REAL.read_bytes()
+        r = run_cli_bytes(data.replace(b",3708250,Digi,", b",37O8250,Digi,"))
+        self.assert_rejected(
+            r, "ax25_packets_transmitted is not an unsigned integer: b'37O8250'")
+
+    def test_malformed_missing_ax_counter(self):
+        # Only one counter: the Digi label lands in the second counter's slot.
+        data = REAL.read_bytes()
+        r = run_cli_bytes(data.replace(b",Ax,3211,3708250,Digi,", b",Ax,3211,Digi,"))
+        self.assert_rejected(
+            r, "ax25_packets_transmitted is not an unsigned integer: b'Digi'")
+
+    def test_missing_digi_label(self):
+        data = REAL.read_bytes()
+        self.assertEqual(data.count(b",Digi,"), 1)
+        r = run_cli_bytes(data.replace(b",Digi,", b",Digl,"))
+        self.assert_rejected(
+            r, "expected digipeater counter label b'Digi', got b'Digl'")
 
     def test_sig_fields_match_parser_layout(self):
         names = [n for _, n in _COMD_PREFIX]

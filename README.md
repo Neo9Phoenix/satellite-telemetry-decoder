@@ -67,6 +67,7 @@ This decoder uses the Python 3.9+ standard library only, with no extra dependenc
 - **`temp_pa_ntc`:** the raw power-amplifier NTC reading. `temp_pa_c` is that reading converted to degrees Celsius.
 - **Six raw radio signal values:** `sig_rx_immediate`, `sig_rx_avg`, `sig_rx_max`, `sig_background_immediate`, `sig_background_avg` and `sig_background_max`. They have no units.
 - **`rf_packets_received` and `rf_packets_transmitted`:** the two RX packet counters, as plain packet counts.
+- **`ax25_packets_received` and `ax25_packets_transmitted`:** the two Ax packet counters, as plain packet counts.
 
 **Units, from the [Cormorant ham radio user guide](https://needronix.eu/products/cormorant/hamradio-user-guide/):**
 
@@ -102,27 +103,31 @@ The 57 real COMd frames compared on 2025-06-09 give 287–298 K (13.85–24.85 �
   - In the same frames, `rf_packets_transmitted` is exactly 13 less than AX.25 + CSP transmitted.
   - The offsets stay constant even as the counters change.
 
-  The CLI does not check this relationship. It also does not decode the `Ax` and `CSP` counters yet.
+  The CLI does not check this relationship. It also does not decode the `CSP` counters yet.
+
+- **`Ax`:** the guide calls these "AX.25 packet counters", with values `<packets_received>, <packets_transmitted>`. The reference decoder names them `ax25_packets_received` and `ax25_packets_transmitted`. They are plain counts, so no conversion is needed.
+
+  In all 59 real frames, `ax25_packets_received` equals the digipeater received count that follows the `Digi` label. That suggests every AX.25 packet the satellite received was digipeater traffic, but the guide does not say so. The CLI does not check this.
 
 It follows the frame layout from the reference decoder's `comd` type, which cites the Needronix Cormorant ham radio user guide:
 
 - **Bytes 0–15:** a fixed AX.25 UI header, `86a240404040e09e9a728ea4846103f0`. That is CQ-0 ← OM9GRB-0, control `0x03`, PID `0xF0`, with no FCS.
-- **Bytes 16 onward:** an ASCII payload, `,COMd,U,<uptime_total>,<uptime_since_last>,R,<reset_count>,V,<mcu_10mv>,Ve,<batt>,T,<temp_cpu>,<temp_pa_ntc>,Sig,<six signal values>,RX,<rf_packets_received>,<rf_packets_transmitted>,Ax,...`
+- **Bytes 16 onward:** an ASCII payload, `,COMd,U,<uptime_total>,<uptime_since_last>,R,<reset_count>,V,<mcu_10mv>,Ve,<batt>,T,<temp_cpu>,<temp_pa_ntc>,Sig,<six signal values>,RX,<rf_packets_received>,<rf_packets_transmitted>,Ax,<ax25_packets_received>,<ax25_packets_transmitted>,Digi,...`
 
 **What the CLI validates:**
 
 - **Exact header:** the first 16 bytes must equal the header above, byte for byte. Any other header is rejected, including a different SSID byte. For example, the other OM9GRB frames from the same pass end the source address with `0x7f` instead of `0x61`, so the CLI rejects them.
 - **Payload start:** the byte after the header must be `,`.
-- **Fields through `Ax`:** the next twenty-four fields are checked in order, and each must end with `,`:
-  - `COMd`, `U`, `R`, `V`, `Ve`, `T`, `Sig`, `RX` and `Ax` must match exactly.
-  - `uptime_total`, `uptime_since_last`, `reset_count`, `mcu_10mv`, `batt`, `temp_cpu`, `temp_pa_ntc`, the six `sig_*` values and the two `rf_packets_*` counters must be unsigned decimal integers (ASCII `0-9` only).
-- **Not checked:** anything after the `Ax,` label, which is the AX.25, Digi, CSP, I2C, RS485 and MCU counters. It is neither parsed nor validated. There is also no FCS/CRC to check, because SatNOGS stores the frame without one.
+- **Fields through `Digi`:** the next twenty-seven fields are checked in order, and each must end with `,`:
+  - `COMd`, `U`, `R`, `V`, `Ve`, `T`, `Sig`, `RX`, `Ax` and `Digi` must match exactly.
+  - `uptime_total`, `uptime_since_last`, `reset_count`, `mcu_10mv`, `batt`, `temp_cpu`, `temp_pa_ntc`, the six `sig_*` values, the two `rf_packets_*` counters and the two `ax25_packets_*` counters must be unsigned decimal integers (ASCII `0-9` only).
+- **Not checked:** anything after the `Digi,` label, which is the Digi, CSP, I2C, RS485 and MCU counters. It is neither parsed nor validated. There is also no FCS/CRC to check, because SatNOGS stores the frame without one.
 
 ### Run
 
 ```sh
 python3 telemetry_decoder.py fixtures/grbalpha_11737297_2025-06-09T18-53-26.bin
-# {"mcu_10mv": 333, "mcu_volts": 3.33, "batt": 2421, "batt_mv": 8161.9173, "temp_cpu_k": 303, "temp_cpu_c": 29.85, "temp_pa_ntc": 1854, "temp_pa_c": 29.39, "sig_rx_immediate": 1917, "sig_rx_avg": 1751, "sig_rx_max": 1751, "sig_background_immediate": 1003, "sig_background_avg": 998, "sig_background_max": 1022, "rf_packets_received": 63572, "rf_packets_transmitted": 8277857}
+# {"mcu_10mv": 333, "mcu_volts": 3.33, "batt": 2421, "batt_mv": 8161.9173, "temp_cpu_k": 303, "temp_cpu_c": 29.85, "temp_pa_ntc": 1854, "temp_pa_c": 29.39, "sig_rx_immediate": 1917, "sig_rx_avg": 1751, "sig_rx_max": 1751, "sig_background_immediate": 1003, "sig_background_avg": 998, "sig_background_max": 1022, "rf_packets_received": 63572, "rf_packets_transmitted": 8277857, "ax25_packets_received": 3211, "ax25_packets_transmitted": 3708250}
 ```
 
 If a frame is malformed or unreadable, the decoder prints `error: <file>: <reason>` to stderr and exits with code 1.
@@ -133,12 +138,12 @@ If a frame is malformed or unreadable, the decoder prints `error: <file>: <reaso
 python3 -m unittest discover -s tests -v
 ```
 
-There are twenty-two tests.
+There are twenty-six tests.
 
 **End-to-end CLI tests:**
 
-- The first real fixture gives `mcu_10mv` 333 (3.33 V), `batt` 2421 (8161.9173 mV), `temp_cpu` 303 K (29.85 °C) `temp_pa_ntc` 1854 (29.39 °C) Sig values `1917,1751,1751,1003,998,1022` and RX counters 63572 and 8277857.
-- The second real fixture gives `mcu_10mv` 334 (3.34 V), `batt` 2447 (8249.5711 mV), `temp_cpu` 290 K (16.85 °C) `temp_pa_ntc` 2411 (17.02 °C) Sig values `1917,1751,1751,1219,1193,1194` and RX counters 63572 and 8276732.
+- The first real fixture gives `mcu_10mv` 333 (3.33 V), `batt` 2421 (8161.9173 mV), `temp_cpu` 303 K (29.85 °C) `temp_pa_ntc` 1854 (29.39 °C) Sig values `1917,1751,1751,1003,998,1022` RX counters 63572 and 8277857, and Ax counters 3211 and 3708250.
+- The second real fixture gives `mcu_10mv` 334 (3.34 V), `batt` 2447 (8249.5711 mV), `temp_cpu` 290 K (16.85 °C) `temp_pa_ntc` 2411 (17.02 °C) Sig values `1917,1751,1751,1219,1193,1194` RX counters 63572 and 8276732, and Ax counters 3211 and 3707125.
 - The synthetic fixture gives `mcu_10mv` 412 (4.12 V). Its other fields are unchanged from the first real fixture.
 - A frame truncated to 40 bytes produces an error naming `uptime_since_last`, a nonzero exit code and nothing on stdout.
 - The real frame with `batt` changed to `24x1` produces the error `batt is not an unsigned integer: b'24x1'`, a nonzero exit code and nothing on stdout.
@@ -154,6 +159,10 @@ There are twenty-two tests.
 - The real frame with an RX counter changed to `635-2` produces the error `rf_packets_received is not an unsigned integer: b'635-2'`.
 - The real frame with only one RX counter produces the error `rf_packets_transmitted is not an unsigned integer: b'Ax'`.
 - The real frame with `Ax` changed to `AX` produces the error `expected AX.25 packet counter label b'Ax', got b'AX'`.
+- The real frame with its Ax counters replaced by `7,89` decodes 7 received and 89 transmitted, and leaves the RX counters unchanged.
+- The real frame with an Ax counter changed to `37O8250` (a letter O) produces the error `ax25_packets_transmitted is not an unsigned integer: b'37O8250'`.
+- The real frame with only one Ax counter produces the error `ax25_packets_transmitted is not an unsigned integer: b'Digi'`.
+- The real frame with `Digi` changed to `Digl` produces the error `expected digipeater counter label b'Digi', got b'Digl'`.
 - `SIG_FIELDS`, the output key list, matches the parser's field layout between `Sig` and `RX`.
 
 **`NTC_TABLE` and `ntc_to_celsius` tests:**
