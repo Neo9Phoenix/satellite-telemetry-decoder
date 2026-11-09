@@ -1,5 +1,62 @@
 # Satellite Telemetry Decoder
 
+## Quick Demo
+
+This decodes a real beacon from the GRBAlpha satellite. It needs only Python 3.9+ and nothing else installed: no virtual environment and no `pip install`. Run it from the project folder:
+
+```sh
+python3 telemetry_decoder.py fixtures/grbalpha_11737297_2025-06-09T18-53-26.bin | python3 -m json.tool
+```
+
+The frame was received by SatNOGS station VU2JEK_Nitin at 2025-06-09T18:53:26Z, in observation [11737297](https://network.satnogs.org/observations/11737297/). The CLI prints one line of JSON, and `python3 -m json.tool` (part of Python's standard library) spreads it over several lines for easier reading. The output is:
+
+```json
+{
+    "uptime_total": 113266941,
+    "uptime_since_last": 1058203,
+    "reset_count": 346,
+    "mcu_10mv": 333,
+    "mcu_volts": 3.33,
+    "batt": 2421,
+    "batt_mv": 8161.9173,
+    "temp_cpu_k": 303,
+    "temp_cpu_c": 29.85,
+    "temp_pa_ntc": 1854,
+    "temp_pa_c": 29.39,
+    "sig_rx_immediate": 1917,
+    "sig_rx_avg": 1751,
+    "sig_rx_max": 1751,
+    "sig_background_immediate": 1003,
+    "sig_background_avg": 998,
+    "sig_background_max": 1022,
+    "rf_packets_received": 63572,
+    "rf_packets_transmitted": 8277857,
+    "ax25_packets_received": 3211,
+    "ax25_packets_transmitted": 3708250,
+    "digipeater_rx_count": 3211,
+    "digipeater_tx_count": 1518149,
+    "csp_received": 59966,
+    "csp_transmitted": 4569620,
+    "i2c1_received": 19774702,
+    "i2c1_transmitted": 107436,
+    "i2c2_received": 106889,
+    "i2c2_transmitted": 41483,
+    "rs485_received": 421130,
+    "rs485_transmitted": 15223593,
+    "csp_mcu_received": 15249184,
+    "csp_mcu_transmitted": null
+}
+```
+
+Four readings from it:
+
+- **MCU voltage:** `"mcu_volts": 3.33`. The satellite sends `333`, the supply voltage of its onboard microcontroller counted in 10 mV steps, which is 3.33 V.
+- **Battery voltage:** `"batt_mv": 8161.9173`, about 8.16 V. The satellite sends a raw ADC count, `2421`. The battery voltage is that count × 3.3713, the GRBAlpha factor from the radio's user guide. This value is worked out from that published factor and hasn't been confirmed any other way.
+- **CPU temperature:** `"temp_cpu_c": 29.85`. The satellite sends `303`, the CPU core temperature in kelvin, which is 29.85 °C.
+- **Missing MCU transmit counter:** `"csp_mcu_transmitted": null`. The frame ends with `MCU,15249184,`, which gives the MCU interface's received count but no transmitted count. Every real GRBAlpha frame checked ends this way, even though the guide's example shows both counts. `null` means the value is not in the frame. It is not reported as `0`, because 0 would be a real reading.
+
+Each field is explained in more detail below, under [Our decoder](#our-decoder-telemetry_decoderpy). The raw values match the pinned reference decoder, which is set up separately as described below. The derived values (`mcu_volts`, `batt_mv`, `temp_cpu_c` and `temp_pa_c`) come only from this CLI.
+
 ## Reference fixture: GRBAlpha COMd beacon
 
 | Field | Value |
