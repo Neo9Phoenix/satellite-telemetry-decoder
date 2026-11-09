@@ -19,6 +19,9 @@ gives battery voltage as Vbat [mV] = Ve * 3.3713.
 
 temp_cpu (first value after "T") is the CPU core temperature in kelvin;
 Celsius = K - 273.15.
+
+temp_pa_ntc (second value after "T") is the raw power-amplifier NTC ADC
+reading, converted to degrees C with the guide's Appendix II table.
 Source: https://needronix.eu/products/cormorant/hamradio-user-guide/
 """
 
@@ -34,7 +37,21 @@ _UINT = re.compile(rb"[0-9]+")
 GRBALPHA_VBAT_MV_PER_COUNT = Decimal("3.3713")
 KELVIN_OFFSET = Decimal("273.15")
 
-# Fields up to and including temp_cpu (the first value after "T"). None marks a numeric
+# Appendix II "NTC temperature conversion table" of the Cormorant guide:
+# (ADC value, temperature in degrees C), ADC strictly decreasing.
+NTC_TABLE = (
+    (4054, -55), (4036, -50), (4011, -45), (3978, -40), (3934, -35),
+    (3877, -30), (3804, -25), (3713, -20), (3602, -15), (3469, -10),
+    (3313, -5), (3136, 0), (2939, 5), (2726, 10), (2503, 15),
+    (2275, 20), (2048, 25), (1827, 30), (1618, 35), (1423, 40),
+    (1245, 45), (1084, 50), (941, 55), (815, 60), (705, 65),
+    (609, 70), (527, 75), (456, 80), (395, 85), (342, 90),
+    (297, 95), (259, 100), (226, 105), (197, 110), (173, 115),
+    (152, 120), (134, 125), (118, 130), (104, 135), (93, 140),
+    (82, 145), (73, 150),
+)
+
+# Fields up to and including the "Sig" label after the two "T" values. None marks a numeric
 # value; a bytes value is a literal label that must match exactly.
 _COMD_PREFIX = (
     (b"COMd", "frame type"),
@@ -49,6 +66,8 @@ _COMD_PREFIX = (
     (None, "batt"),
     (b"T", "temperature label"),
     (None, "temp_cpu"),
+    (None, "temp_pa_ntc"),
+    (b"Sig", "signal label"),
 )
 
 
@@ -105,10 +124,29 @@ def kelvin_to_celsius(kelvin: int) -> float:
     return float(Decimal(kelvin) - KELVIN_OFFSET)
 
 
+def ntc_to_celsius(adc: int):
+    """Convert a PA NTC ADC reading to degrees C via the Appendix II table.
+
+    Linear interpolation between table points (the guide states no rule),
+    rounded to 0.01 C. Returns None outside the table (above 4054 or below
+    73), e.g. the guide's own example reading of 0.
+    """
+    hi_adc, lo_adc = NTC_TABLE[0][0], NTC_TABLE[-1][0]
+    if adc > hi_adc or adc < lo_adc:
+        return None
+    for (a0, t0), (a1, t1) in zip(NTC_TABLE, NTC_TABLE[1:]):
+        if a1 <= adc <= a0:
+            frac = Decimal(a0 - adc) / Decimal(a0 - a1)
+            temp = Decimal(t0) + frac * Decimal(t1 - t0)
+            return float(temp.quantize(Decimal("0.01")))
+    raise AssertionError("unreachable: NTC_TABLE covers the checked range")
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
-        description="Print mcu_10mv (and volts), batt (and mV) and temp_cpu "
-        "(K and degrees C) from a raw GRBAlpha AX.25 COMd frame as JSON."
+        description="Print mcu_10mv (and volts), batt (and mV), temp_cpu "
+        "(K and degrees C) and temp_pa_ntc (raw and degrees C) from a raw "
+        "GRBAlpha AX.25 COMd frame as JSON."
     )
     parser.add_argument("frame_file", help="path to a raw binary frame (AX.25 without FCS)")
     args = parser.parse_args(argv)
@@ -128,6 +166,8 @@ def main(argv=None) -> int:
         "batt_mv": batt_to_mv(values["batt"]),
         "temp_cpu_k": values["temp_cpu"],
         "temp_cpu_c": kelvin_to_celsius(values["temp_cpu"]),
+        "temp_pa_ntc": values["temp_pa_ntc"],
+        "temp_pa_c": ntc_to_celsius(values["temp_pa_ntc"]),
     }))
     return 0
 

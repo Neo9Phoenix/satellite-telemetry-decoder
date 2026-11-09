@@ -59,11 +59,12 @@ Expected output includes `"mcu_10mv": 333`, which is 3.33 V (onboard computer su
 
 ## Our decoder: `telemetry_decoder.py`
 
-This decoder uses the Python 3.9+ standard library only, with no extra dependencies. It reads a raw GRBAlpha AX.25 COMd frame and prints three fields as JSON:
+This decoder uses the Python 3.9+ standard library only, with no extra dependencies. It reads a raw GRBAlpha AX.25 COMd frame and prints four fields as JSON:
 
 - **`mcu_10mv`:** the onboard computer supply voltage, counted in 10 mV steps. `mcu_volts` is the same value in volts.
 - **`batt`:** the raw `Ve` reading. `batt_mv` is the GRBAlpha battery voltage worked out from it.
 - **`temp_cpu_k`:** the CPU core temperature in kelvin. `temp_cpu_c` is the same value in degrees Celsius.
+- **`temp_pa_ntc`:** the raw power-amplifier NTC reading. `temp_pa_c` is that reading converted to degrees Celsius.
 
 **Units, from the [Cormorant ham radio user guide](https://needronix.eu/products/cormorant/hamradio-user-guide/):**
 
@@ -72,9 +73,16 @@ This decoder uses the Python 3.9+ standard library only, with no extra dependenc
 
 The conversion looks plausible: all 57 real COMd frames compared on 2025-06-09 give 8148–8263 mV. That is inside the guide's GRBAlpha 2S1P pack range, which runs from 6500 mV (critical) to 8300 mV (max). However, the guide's own example beacon (`Ve,937`, about 3159 mV) would fall below that range, and the guide does not explain why. Treat `batt_mv` as derived from the documented factor, not as independently confirmed.
 
-- **`T`:** the guide's description is `<CPU_core_temperature[K]>, <power_amplifier_NTC_raw_data>`. The first value is read as `temp_cpu_k`, and `temp_cpu_c = temp_cpu_k − 273.15`. That calculation also uses `Decimal`, so 303 K gives exactly 29.85 °C. The second value is a raw NTC reading, which the CLI does not decode.
+- **`T`:** the guide's description is `<CPU_core_temperature[K]>, <power_amplifier_NTC_raw_data>`. The first value is read as `temp_cpu_k`, and `temp_cpu_c = temp_cpu_k − 273.15`. That calculation also uses `Decimal`, so 303 K gives exactly 29.85 °C. The second value is the raw PA NTC reading, `temp_pa_ntc`.
 
 The 57 real COMd frames compared on 2025-06-09 give 287–298 K (13.85–24.85 °C), and the first fixture gives 303 K (29.85 °C).
+
+- **PA NTC (Appendix II):** `temp_pa_c` comes from the guide's "9. Appendix II. - NTC temperature conversion table". That table has 42 points, running from ADC 4054 = −55 °C to ADC 73 = 150 °C in 5 °C steps, and it is copied into `NTC_TABLE` in `telemetry_decoder.py`. The copy was checked against a parse of the live page on 2026-11-09, and all 42 points matched. The guide gives no interpolation rule, so the CLI makes three choices of its own:
+  - **Exact table point:** the table value is used.
+  - **Between two points:** the CLI interpolates linearly between the two neighbouring points and rounds to 0.01 °C. For example, 1854 gives 25 + 194/221 × 5 = 29.39 °C.
+  - **Outside the table** (above 4054 or below 73): `temp_pa_c` is `null`. The frame still decodes, because the guide's own example beacon has a PA reading of `0`.
+
+  A cross-check supports the conversion: on all 57 real COMd frames, `temp_pa_c` stays within −1.41 to +0.31 °C of the CPU temperature, which is an independent sensor. The two fixtures give PA 29.39 °C against CPU 29.85 °C, and PA 17.02 °C against CPU 16.85 °C.
 
 It follows the frame layout from the reference decoder's `comd` type, which cites the Needronix Cormorant ham radio user guide:
 
@@ -85,16 +93,16 @@ It follows the frame layout from the reference decoder's `comd` type, which cite
 
 - **Exact header:** the first 16 bytes must equal the header above, byte for byte. Any other header is rejected, including a different SSID byte. For example, the other OM9GRB frames from the same pass end the source address with `0x7f` instead of `0x61`, so the CLI rejects them.
 - **Payload start:** the byte after the header must be `,`.
-- **Fields through `temp_cpu`:** the next twelve fields are checked in order, and each must end with `,`:
-  - `COMd`, `U`, `R`, `V`, `Ve` and `T` must match exactly.
-  - `uptime_total`, `uptime_since_last`, `reset_count`, `mcu_10mv`, `batt` and `temp_cpu` must be unsigned decimal integers (ASCII `0-9` only).
-- **Not checked:** anything after `temp_cpu`, such as the PA NTC reading, signal levels and counters. It is neither parsed nor validated. There is also no FCS/CRC to check, because SatNOGS stores the frame without one.
+- **Fields through `Sig`:** the next fourteen fields are checked in order, and each must end with `,`:
+  - `COMd`, `U`, `R`, `V`, `Ve`, `T` and `Sig` must match exactly.
+  - `uptime_total`, `uptime_since_last`, `reset_count`, `mcu_10mv`, `batt`, `temp_cpu` and `temp_pa_ntc` must be unsigned decimal integers (ASCII `0-9` only).
+- **Not checked:** anything after the `Sig,` label, such as signal levels and counters. It is neither parsed nor validated. There is also no FCS/CRC to check, because SatNOGS stores the frame without one.
 
 ### Run
 
 ```sh
 python3 telemetry_decoder.py fixtures/grbalpha_11737297_2025-06-09T18-53-26.bin
-# {"mcu_10mv": 333, "mcu_volts": 3.33, "batt": 2421, "batt_mv": 8161.9173, "temp_cpu_k": 303, "temp_cpu_c": 29.85}
+# {"mcu_10mv": 333, "mcu_volts": 3.33, "batt": 2421, "batt_mv": 8161.9173, "temp_cpu_k": 303, "temp_cpu_c": 29.85, "temp_pa_ntc": 1854, "temp_pa_c": 29.39}
 ```
 
 If a frame is malformed or unreadable, the decoder prints `error: <file>: <reason>` to stderr and exits with code 1.
@@ -105,16 +113,29 @@ If a frame is malformed or unreadable, the decoder prints `error: <file>: <reaso
 python3 -m unittest discover -s tests -v
 ```
 
-There are six tests:
+There are thirteen tests.
 
-- The first real fixture gives `mcu_10mv` 333 (3.33 V), `batt` 2421 (8161.9173 mV) and `temp_cpu` 303 K (29.85 °C).
-- The second real fixture gives `mcu_10mv` 334 (3.34 V), `batt` 2447 (8249.5711 mV) and `temp_cpu` 290 K (16.85 °C).
-- The synthetic fixture gives `mcu_10mv` 412 (4.12 V). Its `batt` (2421) and `temp_cpu` (303 K) are unchanged.
+**End-to-end CLI tests:**
+
+- The first real fixture gives `mcu_10mv` 333 (3.33 V), `batt` 2421 (8161.9173 mV), `temp_cpu` 303 K (29.85 °C) and `temp_pa_ntc` 1854 (29.39 °C).
+- The second real fixture gives `mcu_10mv` 334 (3.34 V), `batt` 2447 (8249.5711 mV), `temp_cpu` 290 K (16.85 °C) and `temp_pa_ntc` 2411 (17.02 °C).
+- The synthetic fixture gives `mcu_10mv` 412 (4.12 V). Its other fields are unchanged from the first real fixture.
 - A frame truncated to 40 bytes produces an error naming `uptime_since_last`, a nonzero exit code and nothing on stdout.
 - The real frame with `batt` changed to `24x1` produces the error `batt is not an unsigned integer: b'24x1'`, a nonzero exit code and nothing on stdout.
 - The real frame with `temp_cpu` changed to `3a3` produces the error `temp_cpu is not an unsigned integer: b'3a3'`, a nonzero exit code and nothing on stdout.
+- The real frame with the PA NTC reading changed to `0` still decodes. `temp_pa_ntc` is 0 and `temp_pa_c` is `null`.
+- The real frame with `temp_pa_ntc` changed to `18z4` produces the error `temp_pa_ntc is not an unsigned integer: b'18z4'`.
+- The real frame with `Sig` changed to `Sgi` produces the error `expected signal label b'Sig', got b'Sgi'`.
+
+**`NTC_TABLE` and `ntc_to_celsius` tests:**
+
+- The table has 42 points and starts and ends at the expected values.
+- Its ADC values are strictly decreasing.
+- Every table point converts exactly.
+- Two in-between readings interpolate correctly: 1937 gives 27.51 °C and 78 gives 147.22 °C.
+- Readings of 0, 72, 4055 and 4095 return `None`.
 
 ### Known caveats
 
-- The reference decoder gives `batt` and `temp_cpu` as raw integers with no units. The units used here come from the Cormorant guide, not the reference decoder. The PA NTC value (`temp_pa_ntc`) is a raw ADC reading. The guide's Appendix II has an ADC-to-°C lookup table for it, but the CLI does not decode it.
+- The reference decoder gives `batt` and `temp_cpu` as raw integers with no units. The units used here come from the Cormorant guide, not the reference decoder. The guide's T field description cross-references Appendix II for the PA NTC value, but the appendix itself does not name the field it applies to.
 - `csp_mcu_transmitted` decodes as `null` because the payload ends with a trailing comma.
