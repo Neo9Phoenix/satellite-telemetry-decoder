@@ -26,6 +26,9 @@ reading, converted to degrees C with the guide's Appendix II table.
 The six "Sig" values are, in order, sigRxImmediate, sigRxAvg, sigRxMax,
 sigBackgroundImmediate, sigBackgroundAvg and sigBackgroundMax. The guide
 documents them only as "Radio signal" with no units, so they are raw.
+
+The two "RX" values are RF-side packet counts: packets received and packets
+transmitted by the transceiver.
 Source: https://needronix.eu/products/cormorant/hamradio-user-guide/
 """
 
@@ -55,7 +58,7 @@ NTC_TABLE = (
     (82, 145), (73, 150),
 )
 
-# Fields up to and including the "RX" label after the six "Sig" values. None marks a numeric
+# Fields up to and including the "Ax" label after the two "RX" counters. None marks a numeric
 # value; a bytes value is a literal label that must match exactly.
 _COMD_PREFIX = (
     (b"COMd", "frame type"),
@@ -79,6 +82,9 @@ _COMD_PREFIX = (
     (None, "sig_background_avg"),
     (None, "sig_background_max"),
     (b"RX", "RF packet counter label"),
+    (None, "rf_packets_received"),
+    (None, "rf_packets_transmitted"),
+    (b"Ax", "AX.25 packet counter label"),
 )
 
 
@@ -93,7 +99,7 @@ SIG_FIELDS = (
 
 
 def decode_comd(frame: bytes) -> dict:
-    """Return the numeric COMd fields up to the "RX" label, keyed by name."""
+    """Return the numeric COMd fields up to the "Ax" label, keyed by name."""
     if len(frame) < len(AX25_HEADER):
         raise FrameError(
             f"frame is {len(frame)} bytes; need at least {len(AX25_HEADER)} "
@@ -162,8 +168,9 @@ def ntc_to_celsius(adc: int):
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         description="Print mcu_10mv (and volts), batt (and mV), temp_cpu "
-        "(K and degrees C), temp_pa_ntc (raw and degrees C) and the six raw "
-        "Sig signal values from a raw GRBAlpha AX.25 COMd frame as JSON."
+        "(K and degrees C), temp_pa_ntc (raw and degrees C), the six raw "
+        "Sig signal values and the two RX packet counters from a raw "
+        "GRBAlpha AX.25 COMd frame as JSON."
     )
     parser.add_argument("frame_file", help="path to a raw binary frame (AX.25 without FCS)")
     args = parser.parse_args(argv)
@@ -186,6 +193,8 @@ def main(argv=None) -> int:
         "temp_pa_ntc": values["temp_pa_ntc"],
         "temp_pa_c": ntc_to_celsius(values["temp_pa_ntc"]),
         **{name: values[name] for name in SIG_FIELDS},
+        "rf_packets_received": values["rf_packets_received"],
+        "rf_packets_transmitted": values["rf_packets_transmitted"],
     }))
     return 0
 
