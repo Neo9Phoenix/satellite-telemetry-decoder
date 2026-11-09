@@ -280,3 +280,37 @@ There are thirty-six tests.
 
 - The reference decoder gives `batt` and `temp_cpu` as raw integers with no units. The units used here come from the Cormorant guide, not the reference decoder. The guide's T field description cross-references Appendix II for the PA NTC value, but the appendix itself does not name the field it applies to.
 - `csp_mcu_transmitted` is `null` in every real frame, because the frames end `,MCU,<received>,` with no transmitted value. The guide's example has the value, so the real frames don't match the documented format here. The CLI reports the value as missing and does not guess it.
+
+## Data Sources
+
+### SatNOGS (fixture frames)
+
+The real frames in `fixtures/` come from the [SatNOGS Network](https://network.satnogs.org/), a project of the [Libre Space Foundation](https://libre.space/). They were received by volunteer-run ground stations.
+
+| Fixture | SatNOGS observation | Ground station | Frame time (UTC) |
+|---|---|---|---|
+| `fixtures/grbalpha_11737297_2025-06-09T18-53-26.bin` | [11737297](https://network.satnogs.org/observations/11737297/) | VU2JEK_Nitin | 2025-06-09T18:53:26Z |
+| `fixtures/grbalpha_11738478_2025-06-09T12-34-55.bin` | [11738478](https://network.satnogs.org/observations/11738478/) | EIRSAT-1 GS - Dún Chaoin | 2025-06-09T12:34:55Z |
+
+**License:** SatNOGS distributes observation data under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). Every observation page says "Observation data are freely distributed under the CC BY-SA license", and the SatNOGS Network about page says the same (checked 2026-11-09). So the fixture frames are licensed CC BY-SA 4.0, not MIT.
+
+**Changes:** `fixtures/SYNTHETIC_grbalpha_comd_mcu_10mv_412.bin` is adapted from the frame from observation 11737297. Only `,V,333,` was changed, to `,V,412,`. It is shared under the same license. `fixtures/README.md` lists each file's source and changes.
+
+**Satellite:** GRBAlpha (NORAD 47959, callsign OM9GRB).
+
+**Other frames checked:** the 57 other real COMd frames used to compare against the reference decoder are from SatNOGS observations on 2025-06-09. They are not stored in this repository.
+
+### Needronix Cormorant ham radio user guide (field meanings and units)
+
+The units and conversions come from the [NXTRX4 Cormorant Ham Radio User Guide](https://needronix.eu/products/cormorant/hamradio-user-guide/) by Needronix. That includes the 10 mV step for `V`, the GRBAlpha battery factor 3.3713, kelvin for `T`, and the 42-point Appendix II NTC table copied into `NTC_TABLE`. The guide is the source the reference decoder cites.
+
+The guide's site is marked "Copyright © 2026 Needronix. All rights reserved." It gives no separate license for the guide. This repository uses only short attributed quotations and technical values from it, and it is not covered by this repository's licenses.
+
+### Reference decoder
+
+[satnogs-decoders](https://pypi.org/project/satnogs-decoders/) version 1.132.0 is used only for checking results. It is not included in this repository.
+
+## License
+
+- **Code and documentation:** MIT. See [LICENSE](LICENSE).
+- **Fixture data in `fixtures/`:** CC BY-SA 4.0. See [Data Sources](#data-sources) and [fixtures/README.md](fixtures/README.md).
