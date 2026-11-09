@@ -12,6 +12,11 @@ user guide):
               Each field ends with a comma (0x2C).
 
 mcu_10mv is the onboard computer supply voltage in units of 10 mV.
+
+batt (the "Ve" field) is a raw 12-bit ADC count (2.5 V reference) of an
+external voltage behind a resistor divider. For GRBAlpha the Cormorant guide
+gives battery voltage as Vbat [mV] = Ve * 3.3713.
+Source: https://needronix.eu/products/cormorant/hamradio-user-guide/
 """
 
 import argparse
@@ -23,9 +28,10 @@ from decimal import Decimal
 AX25_HEADER = bytes.fromhex("86a240404040e09e9a728ea4846103f0")
 FIELD_SEP = b","
 _UINT = re.compile(rb"[0-9]+")
+GRBALPHA_VBAT_MV_PER_COUNT = Decimal("3.3713")
 
-# Fields up to and including mcu_10mv. None marks a numeric value; a bytes
-# value is a literal label that must match exactly.
+# Fields up to and including the "T" label after batt. None marks a numeric
+# value; a bytes value is a literal label that must match exactly.
 _COMD_PREFIX = (
     (b"COMd", "frame type"),
     (b"U", "uptime label"),
@@ -36,6 +42,8 @@ _COMD_PREFIX = (
     (b"V", "MCU voltage label"),
     (None, "mcu_10mv"),
     (b"Ve", "battery voltage label"),
+    (None, "batt"),
+    (b"T", "temperature label"),
 )
 
 
@@ -43,7 +51,8 @@ class FrameError(ValueError):
     """The input is not a well-formed GRBAlpha COMd frame."""
 
 
-def decode_mcu_10mv(frame: bytes) -> int:
+def decode_comd(frame: bytes) -> dict:
+    """Return the numeric COMd fields up to batt, keyed by name."""
     if len(frame) < len(AX25_HEADER):
         raise FrameError(
             f"frame is {len(frame)} bytes; need at least {len(AX25_HEADER)} "
@@ -73,7 +82,7 @@ def decode_mcu_10mv(frame: bytes) -> int:
             values[name] = int(token)
         elif token != expected:
             raise FrameError(f"expected {name} {expected!r}, got {token!r}")
-    return values["mcu_10mv"]
+    return values
 
 
 def to_volts(mcu_10mv: int) -> float:
@@ -81,9 +90,15 @@ def to_volts(mcu_10mv: int) -> float:
     return float(Decimal(mcu_10mv) / 100)
 
 
+def batt_to_mv(batt: int) -> float:
+    # GRBAlpha-specific divider factor from the Cormorant guide.
+    return float(Decimal(batt) * GRBALPHA_VBAT_MV_PER_COUNT)
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
-        description="Print mcu_10mv and volts from a raw GRBAlpha AX.25 COMd frame as JSON."
+        description="Print mcu_10mv (and volts) and batt (and mV) from a raw "
+        "GRBAlpha AX.25 COMd frame as JSON."
     )
     parser.add_argument("frame_file", help="path to a raw binary frame (AX.25 without FCS)")
     args = parser.parse_args(argv)
@@ -91,12 +106,17 @@ def main(argv=None) -> int:
     try:
         with open(args.frame_file, "rb") as f:
             frame = f.read()
-        mcu_10mv = decode_mcu_10mv(frame)
+        values = decode_comd(frame)
     except (OSError, FrameError) as e:
         print(f"error: {args.frame_file}: {e}", file=sys.stderr)
         return 1
 
-    print(json.dumps({"mcu_10mv": mcu_10mv, "mcu_volts": to_volts(mcu_10mv)}))
+    print(json.dumps({
+        "mcu_10mv": values["mcu_10mv"],
+        "mcu_volts": to_volts(values["mcu_10mv"]),
+        "batt": values["batt"],
+        "batt_mv": batt_to_mv(values["batt"]),
+    }))
     return 0
 
 

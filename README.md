@@ -59,27 +59,37 @@ Expected output includes `"mcu_10mv": 333`, which is 3.33 V (onboard computer su
 
 ## Our decoder: `telemetry_decoder.py`
 
-This decoder uses the Python 3.9+ standard library only, with no extra dependencies. It reads a raw GRBAlpha AX.25 COMd frame and prints `mcu_10mv` and its value in volts as JSON.
+This decoder uses the Python 3.9+ standard library only, with no extra dependencies. It reads a raw GRBAlpha AX.25 COMd frame and prints two fields as JSON:
+
+- **`mcu_10mv`:** the onboard computer supply voltage, counted in 10 mV steps. `mcu_volts` is the same value in volts.
+- **`batt`:** the raw `Ve` reading. `batt_mv` is the GRBAlpha battery voltage worked out from it.
+
+**Units, from the [Cormorant ham radio user guide](https://needronix.eu/products/cormorant/hamradio-user-guide/):**
+
+- **`V`:** the guide calls this the "Microcontroller supply voltage [x10mV]".
+- **`Ve`:** an "AUX V" reading. It is raw data from a 12-bit ADC against a 2.5 V reference, taken through a resistor divider whose ratio is specific to each mission. For GRBAlpha the guide gives `Vbat [mV] = Ve * 3,3713`, so `batt_mv = batt × 3.3713`. The calculation uses `Decimal`, so 2421 gives exactly 8161.9173.
+
+The conversion looks plausible: all 57 real COMd frames compared on 2025-06-09 give 8148–8263 mV. That is inside the guide's GRBAlpha 2S1P pack range, which runs from 6500 mV (critical) to 8300 mV (max). However, the guide's own example beacon (`Ve,937`, about 3159 mV) would fall below that range, and the guide does not explain why. Treat `batt_mv` as derived from the documented factor, not as independently confirmed.
 
 It follows the frame layout from the reference decoder's `comd` type, which cites the Needronix Cormorant ham radio user guide:
 
 - **Bytes 0–15:** a fixed AX.25 UI header, `86a240404040e09e9a728ea4846103f0`. That is CQ-0 ← OM9GRB-0, control `0x03`, PID `0xF0`, with no FCS.
-- **Bytes 16 onward:** an ASCII payload, `,COMd,U,<uptime_total>,<uptime_since_last>,R,<reset_count>,V,<mcu_10mv>,Ve,...`
+- **Bytes 16 onward:** an ASCII payload, `,COMd,U,<uptime_total>,<uptime_since_last>,R,<reset_count>,V,<mcu_10mv>,Ve,<batt>,T,...`
 
 **What the CLI validates:**
 
 - **Exact header:** the first 16 bytes must equal the header above, byte for byte. Any other header is rejected, including a different SSID byte. For example, the other OM9GRB frames from the same pass end the source address with `0x7f` instead of `0x61`, so the CLI rejects them.
 - **Payload start:** the byte after the header must be `,`.
-- **Fields through `Ve`:** the next nine fields are checked in order, and each must end with `,`:
-  - `COMd`, `U`, `R`, `V` and `Ve` must match exactly.
-  - `uptime_total`, `uptime_since_last`, `reset_count` and `mcu_10mv` must be unsigned decimal integers (ASCII `0-9` only).
-- **Not checked:** anything after the `Ve,` label, such as `batt`, temperatures and counters. It is neither parsed nor validated. There is also no FCS/CRC to check, because SatNOGS stores the frame without one.
+- **Fields through `T`:** the next eleven fields are checked in order, and each must end with `,`:
+  - `COMd`, `U`, `R`, `V`, `Ve` and `T` must match exactly.
+  - `uptime_total`, `uptime_since_last`, `reset_count`, `mcu_10mv` and `batt` must be unsigned decimal integers (ASCII `0-9` only).
+- **Not checked:** anything after the `T,` label, such as temperatures, signal levels and counters. It is neither parsed nor validated. There is also no FCS/CRC to check, because SatNOGS stores the frame without one.
 
 ### Run
 
 ```sh
 python3 telemetry_decoder.py fixtures/grbalpha_11737297_2025-06-09T18-53-26.bin
-# {"mcu_10mv": 333, "mcu_volts": 3.33}
+# {"mcu_10mv": 333, "mcu_volts": 3.33, "batt": 2421, "batt_mv": 8161.9173}
 ```
 
 If a frame is malformed or unreadable, the decoder prints `error: <file>: <reason>` to stderr and exits with code 1.
@@ -90,14 +100,15 @@ If a frame is malformed or unreadable, the decoder prints `error: <file>: <reaso
 python3 -m unittest discover -s tests -v
 ```
 
-There are four tests:
+There are five tests:
 
-- The first real fixture gives 333, which is 3.33 V.
-- The second real fixture gives 334, which is 3.34 V.
-- The synthetic fixture gives 412, which is 4.12 V.
+- The first real fixture gives `mcu_10mv` 333 (3.33 V) and `batt` 2421 (8161.9173 mV).
+- The second real fixture gives `mcu_10mv` 334 (3.34 V) and `batt` 2447 (8249.5711 mV).
+- The synthetic fixture gives `mcu_10mv` 412 (4.12 V). Its `batt` is unchanged at 2421 (8161.9173 mV).
 - A frame truncated to 40 bytes produces an error naming `uptime_since_last`, a nonzero exit code and nothing on stdout.
+- The real frame with `batt` changed to `24x1` produces the error `batt is not an unsigned integer: b'24x1'`, a nonzero exit code and nothing on stdout.
 
 ### Known caveats
 
-- The decoder does not state units for `batt` (2421) or `temp_cpu` (303). Check GRBAlpha documentation before interpreting them.
+- The reference decoder gives `batt` and `temp_cpu` as raw integers with no units. The units used here come from the Cormorant guide, not the reference decoder. The guide gives `temp_cpu` in kelvin (303 K is 29.85 °C), but our CLI does not decode it yet.
 - `csp_mcu_transmitted` decodes as `null` because the payload ends with a trailing comma.

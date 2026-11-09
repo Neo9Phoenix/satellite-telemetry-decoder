@@ -20,32 +20,55 @@ def run_cli(path):
     )
 
 
+def run_cli_bytes(data):
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / "frame.bin"
+        p.write_bytes(data)
+        return run_cli(p)
+
+
 class CliTests(unittest.TestCase):
-    def test_real_fixture(self):
-        r = run_cli(REAL)
+    def assert_decodes(self, path, expected):
+        r = run_cli(path)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(json.loads(r.stdout), {"mcu_10mv": 333, "mcu_volts": 3.33})
+        self.assertEqual(json.loads(r.stdout), expected)
 
-    def test_second_real_fixture_334(self):
-        r = run_cli(REAL_334)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(json.loads(r.stdout), {"mcu_10mv": 334, "mcu_volts": 3.34})
-
-    def test_synthetic_frame_different_value(self):
-        r = run_cli(SYNTHETIC)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(json.loads(r.stdout), {"mcu_10mv": 412, "mcu_volts": 4.12})
-
-    def test_malformed_truncated_frame(self):
-        # The real frame cut to 40 bytes, partway through uptime_since_last.
-        with tempfile.TemporaryDirectory() as d:
-            bad = Path(d) / "truncated.bin"
-            bad.write_bytes(REAL.read_bytes()[:40])
-            r = run_cli(bad)
+    def assert_rejected(self, r, field):
         self.assertNotEqual(r.returncode, 0)
         self.assertEqual(r.stdout, "")
         self.assertIn("error:", r.stderr)
-        self.assertIn("uptime_since_last", r.stderr)
+        self.assertIn(field, r.stderr)
+
+    # batt_mv = batt * 3.3713 (GRBAlpha factor from the Cormorant guide).
+    def test_real_fixture(self):
+        self.assert_decodes(REAL, {
+            "mcu_10mv": 333, "mcu_volts": 3.33,
+            "batt": 2421, "batt_mv": 8161.9173,
+        })
+
+    def test_second_real_fixture_334(self):
+        self.assert_decodes(REAL_334, {
+            "mcu_10mv": 334, "mcu_volts": 3.34,
+            "batt": 2447, "batt_mv": 8249.5711,
+        })
+
+    def test_synthetic_frame_different_value(self):
+        # Only V was changed; batt is the real fixture's value.
+        self.assert_decodes(SYNTHETIC, {
+            "mcu_10mv": 412, "mcu_volts": 4.12,
+            "batt": 2421, "batt_mv": 8161.9173,
+        })
+
+    def test_malformed_truncated_frame(self):
+        # The real frame cut to 40 bytes, partway through uptime_since_last.
+        r = run_cli_bytes(REAL.read_bytes()[:40])
+        self.assert_rejected(r, "uptime_since_last")
+
+    def test_malformed_non_numeric_batt(self):
+        data = REAL.read_bytes()
+        self.assertEqual(data.count(b",Ve,2421,"), 1)
+        r = run_cli_bytes(data.replace(b",Ve,2421,", b",Ve,24x1,"))
+        self.assert_rejected(r, "batt is not an unsigned integer: b'24x1'")
 
 
 if __name__ == "__main__":
