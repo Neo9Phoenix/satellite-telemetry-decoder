@@ -11,6 +11,10 @@ user guide):
               R,<reset_count>,V,<mcu_10mv>,Ve,<batt>,..."
               Each field ends with a comma (0x2C).
 
+uptime_total and uptime_since_last ("U") are seconds: total uptime and
+uptime since the last reset. reset_count ("R") counts resets from any
+source (brown-out, watchdog, software, ...).
+
 mcu_10mv is the onboard computer supply voltage in units of 10 mV.
 
 batt (the "Ve" field) is a raw 12-bit ADC count (2.5 V reference) of an
@@ -224,7 +228,7 @@ def ntc_to_celsius(adc: int):
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
-        description="Print mcu_10mv (and volts), batt (and mV), temp_cpu "
+        description="Print uptime and reset count, mcu_10mv (and volts), batt (and mV), temp_cpu "
         "(K and degrees C), temp_pa_ntc (raw and degrees C), the six raw "
         "Sig signal values and all packet counters from a raw "
         "GRBAlpha AX.25 COMd frame as JSON."
@@ -241,6 +245,9 @@ def main(argv=None) -> int:
         return 1
 
     print(json.dumps({
+        "uptime_total": values["uptime_total"],
+        "uptime_since_last": values["uptime_since_last"],
+        "reset_count": values["reset_count"],
         "mcu_10mv": values["mcu_10mv"],
         "mcu_volts": to_volts(values["mcu_10mv"]),
         "batt": values["batt"],

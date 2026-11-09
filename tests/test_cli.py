@@ -64,6 +64,8 @@ class CliTests(unittest.TestCase):
     # frames end ",MCU,<received>," with no transmitted value.
     def test_real_fixture(self):
         self.assert_decodes(REAL, {
+            "uptime_total": 113266941, "uptime_since_last": 1058203,
+            "reset_count": 346,
             "mcu_10mv": 333, "mcu_volts": 3.33,
             "batt": 2421, "batt_mv": 8161.9173,
             "temp_cpu_k": 303, "temp_cpu_c": 29.85,
@@ -83,6 +85,8 @@ class CliTests(unittest.TestCase):
 
     def test_second_real_fixture_334(self):
         self.assert_decodes(REAL_334, {
+            "uptime_total": 113244337, "uptime_since_last": 1035599,
+            "reset_count": 346,
             "mcu_10mv": 334, "mcu_volts": 3.34,
             "batt": 2447, "batt_mv": 8249.5711,
             "temp_cpu_k": 290, "temp_cpu_c": 16.85,
@@ -104,6 +108,8 @@ class CliTests(unittest.TestCase):
     def test_synthetic_frame_different_value(self):
         # Only V was changed; the other fields are the real fixture's values.
         self.assert_decodes(SYNTHETIC, {
+            "uptime_total": 113266941, "uptime_since_last": 1058203,
+            "reset_count": 346,
             "mcu_10mv": 412, "mcu_volts": 4.12,
             "batt": 2421, "batt_mv": 8161.9173,
             "temp_cpu_k": 303, "temp_cpu_c": 29.85,
@@ -120,6 +126,31 @@ class CliTests(unittest.TestCase):
             "rs485_received": 421130, "rs485_transmitted": 15223593,
             "csp_mcu_received": 15249184, "csp_mcu_transmitted": None,
         })
+
+    def test_uptime_and_reset_follow_payload_order(self):
+        data = REAL.read_bytes()
+        old = b",U,113266941,1058203,R,346,V,"
+        self.assertEqual(data.count(old), 1)
+        r = run_cli_bytes(data.replace(old, b",U,5000,4000,R,0,V,"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = json.loads(r.stdout)
+        self.assertEqual(
+            (out["uptime_total"], out["uptime_since_last"], out["reset_count"]),
+            (5000, 4000, 0))
+        # They come first in the output, in payload order.
+        self.assertEqual(
+            list(out)[:3], ["uptime_total", "uptime_since_last", "reset_count"])
+
+    def test_malformed_non_numeric_uptime_and_reset(self):
+        data = REAL.read_bytes()
+        cases = {
+            b",U,113266941,": (b",U,1132669.41,", "uptime_total is not an unsigned integer: b'1132669.41'"),
+            b",R,346,": (b",R,-1,", "reset_count is not an unsigned integer: b'-1'"),
+        }
+        for old, (new, message) in cases.items():
+            with self.subTest(field=old):
+                self.assertEqual(data.count(old), 1)
+                self.assert_rejected(run_cli_bytes(data.replace(old, new)), message)
 
     def test_malformed_truncated_frame(self):
         # The real frame cut to 40 bytes, partway through uptime_since_last.

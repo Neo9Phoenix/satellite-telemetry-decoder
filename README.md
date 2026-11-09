@@ -61,6 +61,8 @@ Expected output includes `"mcu_10mv": 333`, which is 3.33 V (onboard computer su
 
 This decoder uses the Python 3.9+ standard library only, with no extra dependencies. It reads a raw GRBAlpha AX.25 COMd frame and prints these fields as JSON:
 
+- **`uptime_total` and `uptime_since_last`:** total uptime and uptime since the last reset, in seconds.
+- **`reset_count`:** the number of resets from any source.
 - **`mcu_10mv`:** the onboard computer supply voltage, counted in 10 mV steps. `mcu_volts` is the same value in volts.
 - **`batt`:** the raw `Ve` reading. `batt_mv` is the GRBAlpha battery voltage worked out from it.
 - **`temp_cpu_k`:** the CPU core temperature in kelvin. `temp_cpu_c` is the same value in degrees Celsius.
@@ -77,6 +79,11 @@ This decoder uses the Python 3.9+ standard library only, with no extra dependenc
   - `csp_mcu_received` and `csp_mcu_transmitted`. The transmitted value can be `null`; see below.
 
 **Units, from the [Cormorant ham radio user guide](https://needronix.eu/products/cormorant/hamradio-user-guide/):**
+
+- **`U`:** the guide gives `<total_uptime[s]>, <uptime_since_last_reset[s]>`, so both values are seconds and are output as-is.
+- **`R`:** the guide calls this the "Reset counter" and says "This includes any reset source - Brown-out, Watchdog, SW etc."
+
+  The real frames are consistent with this. In all 57 archive frames, `uptime_total − uptime_since_last` is the same 112208738 s, as it should be when both counters advance together, and `reset_count` is 346. The CLI does not check any relationship between these values.
 
 - **`V`:** the guide calls this the "Microcontroller supply voltage [x10mV]".
 - **`Ve`:** an "AUX V" reading. It is raw data from a 12-bit ADC against a 2.5 V reference, taken through a resistor divider whose ratio is specific to each mission. For GRBAlpha the guide gives `Vbat [mV] = Ve * 3,3713`, so `batt_mv = batt × 3.3713`. The calculation uses `Decimal`, so 2421 gives exactly 8161.9173.
@@ -144,7 +151,7 @@ It follows the frame layout from the reference decoder's `comd` type, which cite
 - **Payload start:** the byte after the header must be `,`.
 - **The whole payload:** forty-three fields (15 labels and 28 values) are checked in order, up to and including `csp_mcu_received`, and each must end with `,`:
   - `COMd`, `U`, `R`, `V`, `Ve`, `T`, `Sig`, `RX`, `Ax`, `Digi`, `CSP`, `I2C1`, `I2C2`, `RS485` and `MCU` must match exactly.
-  - Every value must be an unsigned decimal integer (ASCII `0-9` only). That covers `uptime_total`, `uptime_since_last` and `reset_count`, which are validated but not printed.
+  - Every value must be an unsigned decimal integer (ASCII `0-9` only). That includes `uptime_total`, `uptime_since_last` and `reset_count`.
 - **The end of the frame:** after `csp_mcu_received` the payload must either end or be exactly one unsigned integer (`csp_mcu_transmitted`). Nothing else is accepted.
 - **Not checked:** there is no FCS/CRC to check, because SatNOGS stores the frame without one.
 
@@ -152,7 +159,7 @@ It follows the frame layout from the reference decoder's `comd` type, which cite
 
 ```sh
 python3 telemetry_decoder.py fixtures/grbalpha_11737297_2025-06-09T18-53-26.bin
-# {"mcu_10mv": 333, "mcu_volts": 3.33, "batt": 2421, "batt_mv": 8161.9173, "temp_cpu_k": 303, "temp_cpu_c": 29.85, "temp_pa_ntc": 1854, "temp_pa_c": 29.39, "sig_rx_immediate": 1917, "sig_rx_avg": 1751, "sig_rx_max": 1751, "sig_background_immediate": 1003, "sig_background_avg": 998, "sig_background_max": 1022, "rf_packets_received": 63572, "rf_packets_transmitted": 8277857, "ax25_packets_received": 3211, "ax25_packets_transmitted": 3708250, "digipeater_rx_count": 3211, "digipeater_tx_count": 1518149, "csp_received": 59966, "csp_transmitted": 4569620, "i2c1_received": 19774702, "i2c1_transmitted": 107436, "i2c2_received": 106889, "i2c2_transmitted": 41483, "rs485_received": 421130, "rs485_transmitted": 15223593, "csp_mcu_received": 15249184, "csp_mcu_transmitted": null}
+# {"uptime_total": 113266941, "uptime_since_last": 1058203, "reset_count": 346, "mcu_10mv": 333, "mcu_volts": 3.33, "batt": 2421, "batt_mv": 8161.9173, "temp_cpu_k": 303, "temp_cpu_c": 29.85, "temp_pa_ntc": 1854, "temp_pa_c": 29.39, "sig_rx_immediate": 1917, "sig_rx_avg": 1751, "sig_rx_max": 1751, "sig_background_immediate": 1003, "sig_background_avg": 998, "sig_background_max": 1022, "rf_packets_received": 63572, "rf_packets_transmitted": 8277857, "ax25_packets_received": 3211, "ax25_packets_transmitted": 3708250, "digipeater_rx_count": 3211, "digipeater_tx_count": 1518149, "csp_received": 59966, "csp_transmitted": 4569620, "i2c1_received": 19774702, "i2c1_transmitted": 107436, "i2c2_received": 106889, "i2c2_transmitted": 41483, "rs485_received": 421130, "rs485_transmitted": 15223593, "csp_mcu_received": 15249184, "csp_mcu_transmitted": null}
 ```
 
 If a frame is malformed or unreadable, the decoder prints `error: <file>: <reason>` to stderr and exits with code 1.
@@ -163,13 +170,15 @@ If a frame is malformed or unreadable, the decoder prints `error: <file>: <reaso
 python3 -m unittest discover -s tests -v
 ```
 
-There are thirty-four tests.
+There are thirty-six tests.
 
 **End-to-end CLI tests:**
 
-- The first real fixture gives `mcu_10mv` 333 (3.33 V), `batt` 2421 (8161.9173 mV), `temp_cpu` 303 K (29.85 °C) `temp_pa_ntc` 1854 (29.39 °C) Sig values `1917,1751,1751,1003,998,1022` RX counters 63572 and 8277857, and Ax counters 3211 and 3708250.
-- The second real fixture gives `mcu_10mv` 334 (3.34 V), `batt` 2447 (8249.5711 mV), `temp_cpu` 290 K (16.85 °C) `temp_pa_ntc` 2411 (17.02 °C) Sig values `1917,1751,1751,1219,1193,1194` RX counters 63572 and 8276732, and Ax counters 3211 and 3707125.
+- The first real fixture gives `uptime_total` 113266941 s, `uptime_since_last` 1058203 s, `reset_count` 346, `mcu_10mv` 333 (3.33 V), `batt` 2421 (8161.9173 mV), `temp_cpu` 303 K (29.85 °C), `temp_pa_ntc` 1854 (29.39 °C), Sig values `1917,1751,1751,1003,998,1022`, RX counters 63572 and 8277857, and Ax counters 3211 and 3708250.
+- The second real fixture gives `uptime_total` 113244337 s, `uptime_since_last` 1035599 s, `reset_count` 346, `mcu_10mv` 334 (3.34 V), `batt` 2447 (8249.5711 mV), `temp_cpu` 290 K (16.85 °C), `temp_pa_ntc` 2411 (17.02 °C), Sig values `1917,1751,1751,1219,1193,1194`, RX counters 63572 and 8276732, and Ax counters 3211 and 3707125.
 - The synthetic fixture gives `mcu_10mv` 412 (4.12 V). Its other fields are unchanged from the first real fixture.
+- The real frame with its uptime and reset values replaced by `5000,4000` and `0` decodes 5000, 4000 and 0, and those three keys come first in the output.
+- `uptime_total` of `1132669.41` and `reset_count` of `-1` are each rejected with a named error.
 - A frame truncated to 40 bytes produces an error naming `uptime_since_last`, a nonzero exit code and nothing on stdout.
 - The real frame with `batt` changed to `24x1` produces the error `batt is not an unsigned integer: b'24x1'`, a nonzero exit code and nothing on stdout.
 - The real frame with `temp_cpu` changed to `3a3` produces the error `temp_cpu is not an unsigned integer: b'3a3'`, a nonzero exit code and nothing on stdout.
@@ -214,4 +223,3 @@ There are thirty-four tests.
 
 - The reference decoder gives `batt` and `temp_cpu` as raw integers with no units. The units used here come from the Cormorant guide, not the reference decoder. The guide's T field description cross-references Appendix II for the PA NTC value, but the appendix itself does not name the field it applies to.
 - `csp_mcu_transmitted` is `null` in every real frame, because the frames end `,MCU,<received>,` with no transmitted value. The guide's example has the value, so the real frames don't match the documented format here. The CLI reports the value as missing and does not guess it.
-- `uptime_total`, `uptime_since_last` and `reset_count` are validated but not printed.
