@@ -18,7 +18,7 @@ jobs:
         # 3.9 is the oldest version the README supports.
         python-version: ["3.9", "3.13"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
@@ -34,7 +34,7 @@ jobs:
       # SHA-256 of gitleaks_8.30.1_linux_x64.tar.gz from the release's checksums.txt.
       GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # scan the full history, not just the latest commit
       - name: Install gitleaks (pinned, checksum-verified)
