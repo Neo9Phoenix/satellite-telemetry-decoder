@@ -57,6 +57,32 @@ Four readings from it:
 
 Each field is explained in more detail below, under [Our decoder](#our-decoder-telemetry_decoderpy). The raw values match the pinned reference decoder, which is set up separately as described below. The derived values (`mcu_volts`, `batt_mv`, `temp_cpu_c` and `temp_pa_c`) come only from this CLI.
 
+## Mission Replay
+
+This replays one whole archived GRBAlpha pass. It decodes every frame the ground station saved, writes a CSV with one row per valid COMd frame, and charts battery voltage and CPU temperature against UTC. It uses the same standard-library-only Python 3.9+ as the CLI, and the same decoding function. Run it from the project folder:
+
+```sh
+python3 mission_replay.py fixtures/pass_11738469 --csv replay/grbalpha_11738469.csv --svg replay/grbalpha_11738469.svg
+```
+
+![GRBAlpha battery voltage and CPU temperature over SatNOGS observation 11738469](replay/grbalpha_11738469.svg)
+
+**The pass:** [SatNOGS observation 11738469](https://network.satnogs.org/observations/11738469/), received by station PE0SAT-21 on 2025-06-09 from 11:03:23 to 11:09:48 UTC. `fixtures/pass_11738469/` holds all 17 frame files the station saved, plus `pass.json`, which lists the observation details and each file's size, SHA-256 and source URL.
+
+**What it finds:**
+- **Valid frames:** 7 of the 17 frames are valid COMd frames.
+- **Other frames:** the other 10 are GPS, digipeated and other traffic. They are skipped, and each one is listed on stderr with the reason.
+- **Repeat copies:** the 7 valid frames are only 4 distinct beacons. The station saved three of the beacons twice, about 3 s apart, as byte-identical files, one of them ending `_g0`. The `duplicate_of` column names the earlier copy, and the chart draws each repeat copy as a ring.
+- **Missed beacons:** the beacons are 60 s apart by the satellite's `uptime_total`. No frame was received for the beacon expected around 11:04:23, or for the one expected around 11:09:21. Both are inside the observation window, so they show up as gaps.
+
+**How the outputs are built:**
+- **Rows:** there is one CSV row per valid frame, in reception order.
+- **Columns:** `utc`, `source_file` and `duplicate_of`, followed by exactly the fields `telemetry_decoder.py` prints for that frame.
+- **Missing values:** a value that isn't in the frame, such as `csp_mcu_transmitted`, is left empty in the CSV and never written as 0.
+- **Times:** UTC comes from the reception time in the SatNOGS file name, so it's the time the station received the frame, not a time sent by the satellite.
+- **Chart:** each received frame is one point, and points are never joined by lines. The time axis covers the whole observation window, so gaps before the first frame and after the last one stay visible.
+- **Reading the chart:** hovering over a point shows its time, value and file. The chart follows the viewer's light or dark mode.
+
 ## Reference fixture: GRBAlpha COMd beacon
 
 | Field | Value |
@@ -227,7 +253,18 @@ If a frame is malformed or unreadable, the decoder prints `error: <file>: <reaso
 python3 -m unittest discover -s tests -v
 ```
 
-There are thirty-six tests.
+There are forty-eight tests: thirty-six for the CLI in `tests/test_cli.py`, and twelve for the mission replay in `tests/test_mission_replay.py`.
+
+**Mission replay tests:**
+
+- There is exactly one CSV row per frame that the decoder accepts. That's 7 of the pass's 17 files, and each of the other 10 is reported as skipped.
+- Every row matches what `telemetry_decoder.py` prints for that frame, run as a separate process: the same fields, in the same order, with the same values.
+- `csp_mcu_transmitted` is empty in every row, never `0`.
+- Each row's `utc` matches its file name, falls inside the observation window, and the rows are in time order.
+- The 3 repeat copies are flagged, and each is byte-identical to the frame it names.
+- The committed `replay/` CSV and SVG are byte-identical to a fresh run.
+- Each chart panel has one unjoined point per row (4 dots and 3 rings), with no lines or paths. Points move right with time, and up with higher battery voltage.
+- The script exits with an error for a badly named frame file, a frame from another observation, or a pass with no valid COMd frames.
 
 **End-to-end CLI tests:**
 
@@ -298,6 +335,8 @@ The real frames in `fixtures/` come from the [SatNOGS Network](https://network.s
 
 **Satellite:** GRBAlpha (NORAD 47959, callsign OM9GRB).
 
+**Mission replay pass:** `fixtures/pass_11738469/` contains all 17 frame files from [SatNOGS observation 11738469](https://network.satnogs.org/observations/11738469/), received by ground station PE0SAT-21 on 2025-06-09 between 11:03:23 and 11:09:48 UTC. They are unchanged. `pass.json` gives each file's source URL and SHA-256. The CSV and chart in `replay/` are derived from these frames, so they are also licensed CC BY-SA 4.0.
+
 **Other frames checked:** the 57 other real COMd frames used to compare against the reference decoder are from SatNOGS observations on 2025-06-09. They are not stored in this repository.
 
 ### Needronix Cormorant ham radio user guide (field meanings and units)
@@ -313,4 +352,4 @@ The guide's site is marked "Copyright © 2026 Needronix. All rights reserved." I
 ## License
 
 - **Code and documentation:** MIT. See [LICENSE](LICENSE).
-- **Fixture data in `fixtures/`:** CC BY-SA 4.0. See [Data Sources](#data-sources) and [fixtures/README.md](fixtures/README.md).
+- **Fixture data in `fixtures/` and the replay outputs in `replay/`:** CC BY-SA 4.0. The replay outputs are derived from the SatNOGS frames. See [Data Sources](#data-sources) and [fixtures/README.md](fixtures/README.md).

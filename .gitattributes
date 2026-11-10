@@ -1,1 +1,2 @@
 fixtures/*.bin binary
+fixtures/pass_*/data_* binary

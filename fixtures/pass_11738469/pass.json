@@ -1,0 +1,118 @@
+{
+  "satnogs_observation_id": 11738469,
+  "observation_url": "https://network.satnogs.org/observations/11738469/",
+  "api_url": "https://network.satnogs.org/api/observations/11738469/?format=json",
+  "satellite": "GRBAlpha",
+  "norad_cat_id": 47959,
+  "ground_station": "PE0SAT-21",
+  "transmitter": "Mode U - GFSK9k6 - AX.25 G3RUH",
+  "observation_start_utc": "2025-06-09T11:03:23Z",
+  "observation_end_utc": "2025-06-09T11:09:48Z",
+  "status": "good",
+  "license": "CC BY-SA 4.0 (SatNOGS observation data)",
+  "frame_time_source": "UTC reception time encoded in each SatNOGS file name: data_<obs>_<YYYY-MM-DDTHH-MM-SS>[_suffix]",
+  "frames": [
+    {
+      "file": "data_11738469_2025-06-09T11-04-42_g0",
+      "bytes": 123,
+      "sha256": "19dc756cef88bd0787a48a12abab9f15b7cca8ce29726dc3eb7a2d2d76beccdc",
+      "source_url": "https://s3.eu-central-1.wasabisys.com/satnogs-network/data_obs/2025/6/9/11/11738469/data_11738469_2025-06-09T11-04-42_g0"
+    },
+    {
+      "file": "data_11738469_2025-06-09T11-04-45",
+      "bytes": 123,
+      "sha256": "19dc756cef88bd0787a48a12abab9f15b7cca8ce29726dc3eb7a2d2d76beccdc",
+      "source_url": "https://s3.eu-central-1.wasabisys.com/satnogs-network/data_obs/2025/6/9/11/11738469/data_11738469_2025-06-09T11-04-45"
+    },
+    {
+      "file": "data_11738469_2025-06-09T11-04-55",
+      "bytes": 64,
+      "sha256": "7972af4f38202227c9a75afc42ae2b9c2d62c1fc9fe1a4a79b16f98f017e9236",
+      "source_url": "https://s3.eu-central-1.wasabisys.com/satnogs-network/data_obs/2025/6/9/11/11738469/data_11738469_2025-06-09T11-04-55"
+    },
+    {
+      "file": "data_11738469_2025-06-09T11-05-23",
+      "bytes": 250,
+      "sha256": "dbce261961e30da754849bf40a17a109a1e7483e81093e7d8b6300cb67d6f866",
+      "source_url": "https://s3.eu-central-1.wasabisys.com/satnogs-network/data_obs/2025/6/9/11/11738469/data_11738469_2025-06-09T11-05-23"
+    },
+    {
+      "file": "data_11738469_2025-06-09T11-05-42_g0",
+      "bytes": 62,
+      "sha256": "a4145f9570e5bce67a81681bc8b4612316493284d65e1c91311d52908fd3a412",
+      "source_url": "https://s3.eu-central-1.wasabisys.com/satnogs-network/data_obs/2025/6/9/11/11738469/data_11738469_2025-06-09T11-05-42_g0"
+    },
+    {
+      "file": "data_11738469_2025-06-09T11-05-44",
+      "bytes": 62,
+      "sha256": "a4145f9570e5bce67a81681bc8b4612316493284d65e1c91311d52908fd3a412",
+      "source_url": "https://s3.eu-central-1.wasabisys.com/satnogs-network/data_obs/2025/6/9/11/11738469/data_11738469_2025-06-09T11-05-44"
+    },
+    {
+      "file": "data_11738469_2025-06-09T11-05-52_g0",
+      "bytes": 64,
+      "sha256": "7972af4f38202227c9a75afc42ae2b9c2d62c1fc9fe1a4a79b16f98f017e9236",
+      "source_url": "https://s3.eu-central-1.wasabisys.com/satnogs-network/data_obs/2025/6/9/11/11738469/data_11738469_2025-06-09T11-05-52_g0"
+    },
+    {
+      "file": "data_11738469_2025-06-09T11-05-55",
+      "bytes": 64,
+      "sha256": "7972af4f38202227c9a75afc42ae2b9c2d62c1fc9fe1a4a79b16f98f017e9236",
+      "source_url": "https://s3.eu-central-1.wasabisys.com/satnogs-network/data_obs/2025/6/9/11/11738469/data_11738469_2025-06-09T11-05-55"
+    },
+    {
+      "file": "data_11738469_2025-06-09T11-06-20_g0",
+      "bytes": 250,
+      "sha256": "297e3f9dee31d7ad9aa736c26a11595ee5e07e3c6961b93425408f88aeab4eaf",
+      "source_url": "https://s3.eu-central-1.wasabisys.com/satnogs-network/data_obs/2025/6/9/11/11738469/data_11738469_2025-06-09T11-06-20_g0"
+    },
+    {
+      "file": "data_11738469_2025-06-09T11-06-23",
+      "bytes": 250,
+      "sha256": "297e3f9dee31d7ad9aa736c26a11595ee5e07e3c6961b93425408f88aeab4eaf",
+      "source_url": "https://s3.eu-central-1.wasabisys.com/satnogs-network/data_obs/2025/6/9/11/11738469/data_11738469_2025-06-09T11-06-23"
+    },
+    {
+      "file": "data_11738469_2025-06-09T11-06-37",
+      "bytes": 50,
+      "sha256": "0bf60ec401e3bec4ce5664583bd0ae6c6dcf9d9a2b0f709bbcdaede530b02fcb",
+      "source_url": "https://s3.eu-central-1.wasabisys.com/satnogs-network/data_obs/2025/6/9/11/11738469/data_11738469_2025-06-09T11-06-37"
+    },
+    {
+      "file": "data_11738469_2025-06-09T11-07-21_g0",
+      "bytes": 250,
+      "sha256": "f19678e5991e8036cbe49cd62af9dc12be9ecc0be8829132b17628907ca49810",
+      "source_url": "https://s3.eu-central-1.wasabisys.com/satnogs-network/data_obs/2025/6/9/11/11738469/data_11738469_2025-06-09T11-07-21_g0"
+    },
+    {
+      "file": "data_11738469_2025-06-09T11-07-24",
+      "bytes": 250,
+      "sha256": "f19678e5991e8036cbe49cd62af9dc12be9ecc0be8829132b17628907ca49810",
+      "source_url": "https://s3.eu-central-1.wasabisys.com/satnogs-network/data_obs/2025/6/9/11/11738469/data_11738469_2025-06-09T11-07-24"
+    },
+    {
+      "file": "data_11738469_2025-06-09T11-07-42_g0",
+      "bytes": 62,
+      "sha256": "a4145f9570e5bce67a81681bc8b4612316493284d65e1c91311d52908fd3a412",
+      "source_url": "https://s3.eu-central-1.wasabisys.com/satnogs-network/data_obs/2025/6/9/11/11738469/data_11738469_2025-06-09T11-07-42_g0"
+    },
+    {
+      "file": "data_11738469_2025-06-09T11-07-45",
+      "bytes": 62,
+      "sha256": "a4145f9570e5bce67a81681bc8b4612316493284d65e1c91311d52908fd3a412",
+      "source_url": "https://s3.eu-central-1.wasabisys.com/satnogs-network/data_obs/2025/6/9/11/11738469/data_11738469_2025-06-09T11-07-45"
+    },
+    {
+      "file": "data_11738469_2025-06-09T11-08-21_g0",
+      "bytes": 250,
+      "sha256": "3e1c230def6e5d6322aed9b0a05c020ed4dcb0ba8f1d451d8103f1fb3f11066f",
+      "source_url": "https://s3.eu-central-1.wasabisys.com/satnogs-network/data_obs/2025/6/9/11/11738469/data_11738469_2025-06-09T11-08-21_g0"
+    },
+    {
+      "file": "data_11738469_2025-06-09T11-08-24",
+      "bytes": 250,
+      "sha256": "3e1c230def6e5d6322aed9b0a05c020ed4dcb0ba8f1d451d8103f1fb3f11066f",
+      "source_url": "https://s3.eu-central-1.wasabisys.com/satnogs-network/data_obs/2025/6/9/11/11738469/data_11738469_2025-06-09T11-08-24"
+    }
+  ]
+}

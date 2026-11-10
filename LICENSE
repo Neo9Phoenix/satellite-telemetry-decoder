@@ -24,6 +24,7 @@ SOFTWARE.
 
 This MIT license covers the source code and documentation in this
 repository. It does NOT cover the files in fixtures/, which are SatNOGS
-observation data (or adapted from it) and are licensed under the Creative
-Commons Attribution-ShareAlike 4.0 International license (CC BY-SA 4.0).
+observation data (or adapted from it), or the files in replay/, which are
+derived from that data. Both are licensed under the Creative Commons
+Attribution-ShareAlike 4.0 International license (CC BY-SA 4.0).
 See fixtures/README.md and the "Data Sources" section of README.md.

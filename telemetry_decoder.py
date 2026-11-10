@@ -226,25 +226,14 @@ def ntc_to_celsius(adc: int):
     raise AssertionError("unreachable: NTC_TABLE covers the checked range")
 
 
-def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(
-        description="Print uptime and reset count, mcu_10mv (and volts), batt (and mV), temp_cpu "
-        "(K and degrees C), temp_pa_ntc (raw and degrees C), the six raw "
-        "Sig signal values and all packet counters from a raw "
-        "GRBAlpha AX.25 COMd frame as JSON."
-    )
-    parser.add_argument("frame_file", help="path to a raw binary frame (AX.25 without FCS)")
-    args = parser.parse_args(argv)
+def decode_frame(frame: bytes) -> dict:
+    """Decode a raw COMd frame into the CLI's output fields, in output order.
 
-    try:
-        with open(args.frame_file, "rb") as f:
-            frame = f.read()
-        values = decode_comd(frame)
-    except (OSError, FrameError) as e:
-        print(f"error: {args.frame_file}: {e}", file=sys.stderr)
-        return 1
-
-    print(json.dumps({
+    Raw values plus the derived mcu_volts, batt_mv, temp_cpu_c and
+    temp_pa_c. Raises FrameError for anything that is not a valid frame.
+    """
+    values = decode_comd(frame)
+    return {
         "uptime_total": values["uptime_total"],
         "uptime_since_last": values["uptime_since_last"],
         "reset_count": values["reset_count"],
@@ -259,7 +248,28 @@ def main(argv=None) -> int:
         **{name: values[name] for name in SIG_FIELDS},
         **{name: values[name] for name in COUNTER_FIELDS},
         "csp_mcu_transmitted": values["csp_mcu_transmitted"],
-    }))
+    }
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Print uptime and reset count, mcu_10mv (and volts), batt (and mV), temp_cpu "
+        "(K and degrees C), temp_pa_ntc (raw and degrees C), the six raw "
+        "Sig signal values and all packet counters from a raw "
+        "GRBAlpha AX.25 COMd frame as JSON."
+    )
+    parser.add_argument("frame_file", help="path to a raw binary frame (AX.25 without FCS)")
+    args = parser.parse_args(argv)
+
+    try:
+        with open(args.frame_file, "rb") as f:
+            frame = f.read()
+        output = decode_frame(frame)
+    except (OSError, FrameError) as e:
+        print(f"error: {args.frame_file}: {e}", file=sys.stderr)
+        return 1
+
+    print(json.dumps(output))
     return 0
 
 
