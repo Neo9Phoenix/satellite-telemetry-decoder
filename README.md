@@ -1,5 +1,7 @@
 # Satellite Telemetry Decoder
 
+[![CI](https://github.com/Neo9Phoenix/satellite-telemetry-decoder/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Neo9Phoenix/satellite-telemetry-decoder/actions/workflows/ci.yml?query=branch%3Amain)
+
 ## Quick Demo
 
 This decodes a real beacon from the GRBAlpha satellite. It needs only Python 3.9+ and nothing else installed: no virtual environment and no `pip install`. Run it from the project folder:
